@@ -3,7 +3,6 @@
 #include <ostream>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_raii.hpp>
-#include "vulkan/vulkan.hpp"
 
 static const std::vector<const char *> validationLayers = {
 	"VK_LAYER_KHRONOS_validation"
@@ -169,12 +168,8 @@ bool checkValidationLayerSupport() {
 	return true;
 }
 
-struct QueueFamilyIndices {
-	std::optional<uint32_t> graphicsFamily;
-};
-
-static QueueFamilyIndices findQueueFamilies(const vk::raii::PhysicalDevice &device) {
-	QueueFamilyIndices indices;
+static VulkanNRI::QueueFamilyIndices findQueueFamilies(const vk::raii::PhysicalDevice &device) {
+	VulkanNRI::QueueFamilyIndices indices;
 
 	auto queueFamilies = device.getQueueFamilyProperties();
 
@@ -188,7 +183,7 @@ static QueueFamilyIndices findQueueFamilies(const vk::raii::PhysicalDevice &devi
 }
 
 static bool isDeviceSuitable(const vk::raii::PhysicalDevice &device) {
-	QueueFamilyIndices indices = findQueueFamilies(device);
+	VulkanNRI::QueueFamilyIndices indices = findQueueFamilies(device);
 	return indices.graphicsFamily.has_value();
 }
 
@@ -217,10 +212,13 @@ void VulkanNRI::pickPhysicalDevice() {
 	if (physicalDevices.size() == 0) { throw std::runtime_error("Failed to find GPUs with Vulkan support!"); }
 
 	for (const auto &device : physicalDevices) {
-		if (isDeviceSuitable(device)) physicalDevice = device;
-		break;
+		if (isDeviceSuitable(device)) {
+			physicalDevice = device;
+			break;
+		}
 	}
 
+	queueFamilyIndices = findQueueFamilies(physicalDevice);
 	if (physicalDevice == nullptr) { throw std::runtime_error("Failed to find a suitable GPU!"); }
 }
 
@@ -236,11 +234,10 @@ void VulkanNRI::createLogicalDevice() {
 		{}, 1, &queueCreateInfo, enableValidationLayers ? static_cast<uint32_t>(validationLayers.size()) : 0,
 		enableValidationLayers ? validationLayers.data() : nullptr, 0, nullptr, &deviceFeatures);
 
-	device		  = vk::raii::Device(physicalDevice, createInfo);
-	graphicsQueue = device.getQueue(indices.graphicsFamily.value(), 0);
+	device = vk::raii::Device(physicalDevice, createInfo);
 }
 
-VulkanNRI::VulkanNRI() : instance(nullptr), physicalDevice(nullptr), device(nullptr), graphicsQueue(nullptr) {
+VulkanNRI::VulkanNRI() : instance(nullptr), physicalDevice(nullptr), device(nullptr) {
 	createInstance();
 	pickPhysicalDevice();
 	createLogicalDevice();
@@ -266,7 +263,7 @@ NRI::MemoryRequirements &NRI::MemoryRequirements::setTypeRequest(MemoryTypeReque
 	return *this;
 }
 
-std::unique_ptr<NRIImage2D> VulkanNRI::createImage2D(std::size_t width, std::size_t height, NRI::Format format,
+std::unique_ptr<NRIImage2D> VulkanNRI::createImage2D(uint32_t width, uint32_t height, NRI::Format format,
 													 NRI::ImageUsage usage) {
 	assert(format != NRI::Format::FORMAT_UNDEFINED);
 	assert(format < NRI::Format::_FORMAT_NUM);
@@ -281,7 +278,7 @@ std::unique_ptr<NRIImage2D> VulkanNRI::createImage2D(std::size_t width, std::siz
 
 	vk::raii::Image image = vk::raii::Image(device, imageInfo);
 
-	return std::make_unique<VulkanNRIImage2D>(std::move(image), device, width, height);
+	return std::make_unique<VulkanNRIImage2D>(std::move(image), vk::ImageLayout::eUndefined, device, width, height);
 }
 
 std::unique_ptr<NRIBuffer> VulkanNRI::createBuffer(std::size_t size, NRI::BufferUsage usage) {
@@ -313,6 +310,51 @@ void VulkanNRIImage2D::bindMemory(NRIAllocation &allocation, std::size_t offset)
 	image.bindMemory(vulkanAllocation.getMemory(), offset);
 }
 
+void VulkanNRIImage2D::clear(NRICommandBuffer &commandBuffer, glm::vec4 color) {
+	auto &vkBuf = static_cast<VulkanNRICommandBuffer &>(commandBuffer);
+
+	vk::ClearColorValue v{color.r, color.g, color.b, color.a};
+	vkBuf.begin();
+
+	transitionLayout(vkBuf, vk::ImageLayout::eTransferDstOptimal, vk::AccessFlagBits::eNone,
+					 vk::AccessFlagBits::eTransferWrite, vk::PipelineStageFlagBits::eTopOfPipe,
+					 vk::PipelineStageFlagBits::eTransfer);
+	vkBuf.commandBuffer.clearColorImage(image, vk::ImageLayout::eTransferDstOptimal, v,
+										{vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1)});
+}
+
+void VulkanNRIImage2D::transitionLayout(NRICommandBuffer &commandBuffer, vk::ImageLayout newLayout,
+										vk::AccessFlagBits srcAccess, vk::AccessFlagBits dstAccess,
+										vk::PipelineStageFlags srcStage, vk::PipelineStageFlags dstStage) {
+	auto &vkBuf = static_cast<VulkanNRICommandBuffer &>(commandBuffer);
+
+	vk::ImageMemoryBarrier barrier(srcAccess, dstAccess, layout, newLayout, vk::QueueFamilyIgnored,
+								   vk::QueueFamilyIgnored, image, {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
+	vkBuf.begin();
+	vkBuf.commandBuffer.pipelineBarrier(srcStage, dstStage,
+										vk::DependencyFlagBits::eByRegion, {}, {}, {barrier});
+}
+
+std::unique_ptr<NRICommandPool> VulkanNRI::createCommandPool() {
+	vk::CommandPoolCreateInfo poolCI(vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
+									 queueFamilyIndices.graphicsFamily.value());
+
+	vk::raii::CommandPool pool = vk::raii::CommandPool(device, poolCI);
+
+	return std::make_unique<VulkanNRICommandPool>(std::move(pool));
+}
+
+std::unique_ptr<NRICommandQueue> VulkanNRI::createCommandQueue() {
+	vk::CommandPoolCreateInfo poolCI(vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
+									 queueFamilyIndices.graphicsFamily.value());
+
+	vk::raii::CommandPool pool = vk::raii::CommandPool(device, poolCI);
+
+	vk::raii::Queue queue = vk::raii::Queue(device, queueFamilyIndices.graphicsFamily.value(), 0);
+
+	return std::make_unique<VulkanNRICommandQueue>(std::move(queue));
+};
+
 std::unique_ptr<NRIAllocation> VulkanNRI::allocateMemory(NRI::MemoryRequirements memoryRequirements) {
 	vk::MemoryPropertyFlags properties;
 	if (memoryRequirements.typeRequest & NRI::MemoryTypeRequest::MEMORY_TYPE_UPLOAD)
@@ -339,4 +381,22 @@ std::unique_ptr<NRIAllocation> VulkanNRI::allocateMemory(NRI::MemoryRequirements
 	vk::raii::DeviceMemory memory = vk::raii::DeviceMemory(device, allocInfo);
 
 	return std::make_unique<VulkanNRIAllocation>(std::move(memory), device);
+}
+
+std::unique_ptr<NRICommandBuffer> VulkanNRI::createCommandBuffer(NRICommandPool &pool) {
+	vk::CommandBufferAllocateInfo allocInfo(static_cast<VulkanNRICommandPool &>(pool).commandPool,
+											vk::CommandBufferLevel::ePrimary, 1);
+	vk::raii::CommandBuffers	  buffers(device, allocInfo);
+	return std::make_unique<VulkanNRICommandBuffer>(std::move(buffers[0]));
+};
+
+void VulkanNRICommandQueue::submit(NRICommandBuffer &commandBuffer) {
+	auto &cmdBuf = static_cast<VulkanNRICommandBuffer &>(commandBuffer);
+	cmdBuf.end();
+	vk::CommandBuffer vk = cmdBuf.commandBuffer;
+	queue.submit(vk::SubmitInfo(0, nullptr, nullptr, 1, &vk), nullptr);
+}
+
+void VulkanNRICommandQueue::synchronize() {
+	queue.waitIdle();
 }

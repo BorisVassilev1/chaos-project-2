@@ -1,17 +1,40 @@
 cmake_minimum_required(VERSION 3.10)
 project(vkTest)
 
-set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD 20)
+set(QT6_DIR "C:/Qt/6.10.1/msvc2022_64/lib/cmake")
+set(CMAKE_PREFIX_PATH ${CMAKE_PREFIX_PATH} ${QT6_DIR})
 
 find_package (Vulkan REQUIRED)
+find_package (Qt6 REQUIRED COMPONENTS Core Gui Widgets)
 
 file(GLOB SOURCE_FILES src/*.cpp)
 
 add_executable(${PROJECT_NAME} main.cpp ${SOURCE_FILES})
 
+add_definitions(${Qt6Core_DEFINITIONS})
 target_link_libraries (${PROJECT_NAME} Vulkan::Vulkan)
+target_link_libraries(${PROJECT_NAME} Qt6::Core Qt6::Gui Qt6::Widgets)
+target_include_directories(${PROJECT_NAME} PRIVATE "C:/msys64/mingw64/include/glm")
 
 set_target_properties(${PROJECT_NAME} PROPERTIES
-	RUNTIME_OUTPUT_DIRECTORY ../
+    RUNTIME_OUTPUT_DIRECTORY ../
 )
 
+if (MSVC)
+    message(STATUS "MSVC detected")
+    target_compile_options(${PROJECT_NAME} PRIVATE "/Zc:__cplusplus")
+    #need to deploy dll-s using windeployqt
+    if(${CMAKE_GENERATOR} STREQUAL Ninja)
+        message(STATUS "Visual Studio detected")
+        message(STATUS ${QT6_DIR}/../../bin/windeployqt.exe ${CMAKE_BINARY_DIR}/../${PROJECT_NAME}.exe)
+        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD COMMAND
+            ${QT6_DIR}/../../bin/windeployqt.exe ${CMAKE_BINARY_DIR}/../${PROJECT_NAME}.exe
+        )
+    else()
+        message(STATUS ${QT6_DIR}/../../bin/windeployqt.exe ${CMAKE_BINARY_DIR}/../Debug/${PROJECT_NAME}.exe)
+        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD COMMAND
+            ${QT6_DIR}/../../bin/windeployqt.exe ${CMAKE_BINARY_DIR}/../Debug/${PROJECT_NAME}.exe
+        )
+    endif()
+endif()

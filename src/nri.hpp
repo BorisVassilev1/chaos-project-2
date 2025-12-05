@@ -2,10 +2,14 @@
 
 #include <cstddef>
 #include <memory>
+#include <glm.hpp>
 
 class NRIBuffer;
 class NRIAllocation;
 class NRIImage2D;
+class NRICommandPool;
+class NRICommandQueue;
+class NRICommandBuffer;
 
 /// NRI - Native Rendering Interface
 class NRI {
@@ -180,9 +184,13 @@ class NRI {
 		MemoryRequirements &setTypeRequest(MemoryTypeRequest tr);
 	};
 
-	virtual std::unique_ptr<NRIBuffer>	   createBuffer(std::size_t size, BufferUsage usage)					 = 0;
-	virtual std::unique_ptr<NRIImage2D>	   createImage2D(std::size_t width, std::size_t height, Format fmt, ImageUsage usage) = 0;
-	virtual std::unique_ptr<NRIAllocation> allocateMemory(MemoryRequirements memoryRequirements)				 = 0;
+	virtual std::unique_ptr<NRIBuffer>		  createBuffer(std::size_t size, BufferUsage usage)		= 0;
+	virtual std::unique_ptr<NRIImage2D>		  createImage2D(uint32_t width, uint32_t height, Format fmt,
+															ImageUsage usage)						= 0;
+	virtual std::unique_ptr<NRIAllocation>	  allocateMemory(MemoryRequirements memoryRequirements) = 0;
+	virtual std::unique_ptr<NRICommandQueue>  createCommandQueue()									= 0;
+	virtual std::unique_ptr<NRICommandBuffer> createCommandBuffer(NRICommandPool &commandPool)		= 0;
+	virtual std::unique_ptr<NRICommandPool>	  createCommandPool()									= 0;
 };
 
 inline constexpr NRI::BufferUsage operator|(NRI::BufferUsage a, NRI::BufferUsage b) {
@@ -212,4 +220,24 @@ class NRIImage2D {
 
 	virtual NRI::MemoryRequirements getMemoryRequirements()									  = 0;
 	virtual void					bindMemory(NRIAllocation &allocation, std::size_t offset) = 0;
+
+	virtual void clear(NRICommandBuffer &commandBuffer, glm::vec4 color) = 0;
+};
+
+class NRICommandPool {
+   public:
+	virtual ~NRICommandPool() {}
+};
+
+class NRICommandQueue {
+   public:
+	virtual ~NRICommandQueue() {}
+
+	virtual void submit(NRICommandBuffer &commandBuffer) = 0;
+	virtual void synchronize()							 = 0;
+};
+
+class NRICommandBuffer {
+   public:
+	virtual ~NRICommandBuffer() {}
 };
