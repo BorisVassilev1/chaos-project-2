@@ -1,8 +1,13 @@
 #include "vk_nri.hpp"
+#include <qapplication.h>
+#include <qguiapplication_platform.h>
+#include <QtWidgets>
 #include <iostream>
 #include <ostream>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_raii.hpp>
+#include <X11/Xlib.h>
+#include <vulkan/vulkan_xlib.h>
 
 static const std::vector<const char *> validationLayers = {
 	"VK_LAYER_KHRONOS_validation"
@@ -168,6 +173,31 @@ bool checkValidationLayerSupport() {
 	return true;
 }
 
+const char *extensions[] = {
+	"VK_KHR_surface",
+	"VK_KHR_xlib_surface",
+};
+
+bool checkExtensionSupport() {
+	auto availableExtensions = vk::enumerateInstanceExtensionProperties();
+
+	for (const char *extensionName : extensions) {
+		bool extensionFound = false;
+
+		for (const auto &extensionProperties : availableExtensions) {
+			if (strcmp(extensionName, extensionProperties.extensionName) == 0) {
+				extensionFound = true;
+				break;
+			}
+		}
+
+		if (!extensionFound) {
+			throw std::runtime_error("Required extension not found!: " + std::string(extensionName));
+		}
+	}
+	return true;
+}
+
 static VulkanNRI::QueueFamilyIndices findQueueFamilies(const vk::raii::PhysicalDevice &device) {
 	VulkanNRI::QueueFamilyIndices indices;
 
@@ -194,8 +224,7 @@ void VulkanNRI::createInstance() {
 
 	if (enableValidationLayers) {
 		if (!checkValidationLayerSupport()) {
-			// throw std::runtime_error("Validation layers requested, but not available!");
-			std::cout << "Validation layers requested, but not available!" << std::endl;
+			throw std::runtime_error("Validation layers requested, but not available!");
 		}
 
 		createInfo.enabledLayerCount   = static_cast<uint32_t>(validationLayers.size());
@@ -203,6 +232,11 @@ void VulkanNRI::createInstance() {
 	} else {
 		createInfo.enabledLayerCount = 0;
 	}
+
+	checkExtensionSupport();
+
+	createInfo.enabledExtensionCount   = sizeof(extensions) / sizeof(extensions[0]);
+	createInfo.ppEnabledExtensionNames = extensions;
 
 	instance = vk::raii::Instance(vk::raii::Context(), createInfo);
 }
@@ -222,6 +256,8 @@ void VulkanNRI::pickPhysicalDevice() {
 	if (physicalDevice == nullptr) { throw std::runtime_error("Failed to find a suitable GPU!"); }
 }
 
+static std::vector<const char *> deviceExtensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+
 void VulkanNRI::createLogicalDevice() {
 	QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
 
@@ -232,7 +268,8 @@ void VulkanNRI::createLogicalDevice() {
 
 	vk::DeviceCreateInfo createInfo(
 		{}, 1, &queueCreateInfo, enableValidationLayers ? static_cast<uint32_t>(validationLayers.size()) : 0,
-		enableValidationLayers ? validationLayers.data() : nullptr, 0, nullptr, &deviceFeatures);
+		enableValidationLayers ? validationLayers.data() : nullptr, static_cast<uint32_t>(deviceExtensions.size()),
+		deviceExtensions.data(), &deviceFeatures);
 
 	device = vk::raii::Device(physicalDevice, createInfo);
 }
@@ -331,8 +368,7 @@ void VulkanNRIImage2D::transitionLayout(NRICommandBuffer &commandBuffer, vk::Ima
 	vk::ImageMemoryBarrier barrier(srcAccess, dstAccess, layout, newLayout, vk::QueueFamilyIgnored,
 								   vk::QueueFamilyIgnored, image, {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
 	vkBuf.begin();
-	vkBuf.commandBuffer.pipelineBarrier(srcStage, dstStage,
-										vk::DependencyFlagBits::eByRegion, {}, {}, {barrier});
+	vkBuf.commandBuffer.pipelineBarrier(srcStage, dstStage, vk::DependencyFlagBits::eByRegion, {}, {}, {barrier});
 }
 
 std::unique_ptr<NRICommandPool> VulkanNRI::createCommandPool() {
@@ -354,6 +390,49 @@ std::unique_ptr<NRICommandQueue> VulkanNRI::createCommandQueue() {
 
 	return std::make_unique<VulkanNRICommandQueue>(std::move(queue));
 };
+
+NRIQWindow *VulkanNRI::createQWidgetSurface(QApplication &app) {
+	auto *window = new VulkanNRIQWindow();
+
+	auto *X11App = app.nativeInterface<QNativeInterface::QX11Application>();
+	assert(X11App);
+
+	PFN_vkCreateXlibSurfaceKHR vkCreateXlibSurfaceKHR =
+		reinterpret_cast<PFN_vkCreateXlibSurfaceKHR>(instance.getProcAddr("vkCreateXlibSurfaceKHR"));
+	assert(vkCreateXlibSurfaceKHR != nullptr);
+
+	VkXlibSurfaceCreateInfoKHR createInfo{};
+	createInfo.sType  = VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR;
+	createInfo.dpy	  = X11App->display();
+	createInfo.window = static_cast<Window>(window->winId());
+
+	VkSurfaceKHR surface;
+	if (vkCreateXlibSurfaceKHR((vk::Instance)instance, &createInfo, nullptr, &surface) != VK_SUCCESS) {
+		throw std::runtime_error("Failed to create Vulkan XCB surface!");
+	}
+
+	window->getSurface() = vk::raii::SurfaceKHR(instance, surface);
+
+	vk::SurfaceCapabilitiesKHR capabilities = physicalDevice.getSurfaceCapabilitiesKHR(*window->getSurface());
+	vk::SwapchainCreateInfoKHR swapChainInfo(
+		{}, *window->getSurface(), capabilities.minImageCount, vk::Format::eB8G8R8A8Unorm,
+		vk::ColorSpaceKHR::eSrgbNonlinear, capabilities.currentExtent, 1, vk::ImageUsageFlagBits::eColorAttachment,
+		vk::SharingMode::eExclusive, 0, nullptr, vk::SurfaceTransformFlagBitsKHR::eIdentity,
+		vk::CompositeAlphaFlagBitsKHR::eOpaque, vk::PresentModeKHR::eFifo, VK_TRUE, nullptr);
+
+	PFN_vkCreateSwapchainKHR vkCreateSwapchainKHR =
+		reinterpret_cast<PFN_vkCreateSwapchainKHR>(instance.getProcAddr("vkCreateSwapchainKHR"));
+	assert(vkCreateSwapchainKHR != nullptr);
+
+	VkSwapchainKHR swapChain;
+	if (vkCreateSwapchainKHR((vk::Device)device, (VkSwapchainCreateInfoKHR *)&swapChainInfo, nullptr, &swapChain) !=
+		VK_SUCCESS) {
+		throw std::runtime_error("Failed to create Vulkan swap chain!");
+	}
+	window->getSwapChain() = vk::raii::SwapchainKHR(device, swapChain);
+
+	return window;
+}
 
 std::unique_ptr<NRIAllocation> VulkanNRI::allocateMemory(NRI::MemoryRequirements memoryRequirements) {
 	vk::MemoryPropertyFlags properties;
@@ -397,6 +476,4 @@ void VulkanNRICommandQueue::submit(NRICommandBuffer &commandBuffer) {
 	queue.submit(vk::SubmitInfo(0, nullptr, nullptr, 1, &vk), nullptr);
 }
 
-void VulkanNRICommandQueue::synchronize() {
-	queue.waitIdle();
-}
+void VulkanNRICommandQueue::synchronize() { queue.waitIdle(); }

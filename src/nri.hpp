@@ -2,7 +2,12 @@
 
 #include <cstddef>
 #include <memory>
-#include <glm.hpp>
+#if defined(__linux__)
+	#include <glm/glm.hpp>
+#else
+	#include <glm.hpp>
+#endif
+#include <QtWidgets>
 
 class NRIBuffer;
 class NRIAllocation;
@@ -10,6 +15,7 @@ class NRIImage2D;
 class NRICommandPool;
 class NRICommandQueue;
 class NRICommandBuffer;
+class NRIQWindow;
 
 /// NRI - Native Rendering Interface
 class NRI {
@@ -191,6 +197,8 @@ class NRI {
 	virtual std::unique_ptr<NRICommandQueue>  createCommandQueue()									= 0;
 	virtual std::unique_ptr<NRICommandBuffer> createCommandBuffer(NRICommandPool &commandPool)		= 0;
 	virtual std::unique_ptr<NRICommandPool>	  createCommandPool()									= 0;
+
+	virtual NRIQWindow* createQWidgetSurface(QApplication &app) = 0;
 };
 
 inline constexpr NRI::BufferUsage operator|(NRI::BufferUsage a, NRI::BufferUsage b) {
@@ -240,4 +248,9 @@ class NRICommandQueue {
 class NRICommandBuffer {
    public:
 	virtual ~NRICommandBuffer() {}
+};
+
+class NRIQWindow : public QWindow {
+   public:
+	virtual ~NRIQWindow() {}
 };

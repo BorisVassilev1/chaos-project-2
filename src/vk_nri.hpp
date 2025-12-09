@@ -5,6 +5,8 @@
 #include <optional>
 #include <vulkan/vulkan_raii.hpp>
 
+#include <iostream>
+
 class VulkanNRIAllocation : public NRIAllocation {
 	vk::raii::DeviceMemory memory;
 	vk::Device			   device;
@@ -89,6 +91,23 @@ class VulkanNRICommandBuffer : public NRICommandBuffer {
 	VulkanNRICommandBuffer(vk::raii::CommandBuffer &&cmdBuf) : commandBuffer(std::move(cmdBuf)), isRecording(false) {}
 };
 
+class VulkanNRIQWindow : public NRIQWindow {
+	vk::raii::SurfaceKHR surface;
+	vk::raii::SwapchainKHR swapChain;
+
+   public:
+	VulkanNRIQWindow() : surface(nullptr), swapChain(nullptr) {}
+
+	void closeEvent(QCloseEvent *event) override {
+		QWindow::closeEvent(event);
+		surface = nullptr;
+	}
+
+	vk::raii::SurfaceKHR &getSurface() { return surface; }
+	vk::raii::SwapchainKHR &getSwapChain() { return swapChain; }
+
+};
+
 class VulkanNRI : public NRI {
 	vk::raii::Instance		 instance;
 	vk::raii::PhysicalDevice physicalDevice;
@@ -108,10 +127,13 @@ class VulkanNRI : public NRI {
 	std::unique_ptr<NRICommandQueue>  createCommandQueue() override;
 	std::unique_ptr<NRICommandBuffer> createCommandBuffer(NRICommandPool &commandPool) override;
 	std::unique_ptr<NRICommandPool>	  createCommandPool() override;
+	NRIQWindow* createQWidgetSurface(QApplication &app) override;
 
 	struct QueueFamilyIndices {
 		std::optional<uint32_t> graphicsFamily;
 	};
+
+	vk::raii::Instance &getInstance() { return instance; }
 
    private:
 	QueueFamilyIndices queueFamilyIndices;

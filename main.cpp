@@ -1,11 +1,15 @@
+#include <qguiapplication.h>
 #include <iostream>
 #include <thread>
 #include "src/vk_nri.hpp"
 
 #include <QtWidgets>
-#include <QVulkanWindow>
+#include <qguiapplication_platform.h>
+#include <qwindowdefs.h>
+#include <X11/Xlib.h>
+#include <vulkan/vulkan_xlib.h>
 
-int main(int argc, char* argv[]) {
+int main(int argc, char *argv[]) {
 	VulkanNRI nri;
 	std::cout << "Vulkan NRI initialized successfully." << std::endl;
 
@@ -26,7 +30,7 @@ int main(int argc, char* argv[]) {
 	std::cout << "Image created and memory bound successfully." << std::endl;
 
 	auto cmdQueue = nri.createCommandQueue();
-	auto cmdPool = nri.createCommandPool();
+	auto cmdPool  = nri.createCommandPool();
 	std::cout << "Command queue and pool created successfully." << std::endl;
 
 	auto cmdBuffer = nri.createCommandBuffer(*cmdPool);
@@ -39,18 +43,30 @@ int main(int argc, char* argv[]) {
 
 	QApplication app(argc, argv);
 
-	QVulkanInstance inst;
-	// enable the standard validation layers, when available
-	inst.setLayers({"VK_LAYER_KHRONOS_validation"});
-	if (!inst.create()) qFatal("Failed to create Vulkan instance: %d", inst.errorCode());
+	auto window = nri.createQWidgetSurface(app);
+	QWidget *vulkanContainer = QWidget::createWindowContainer(window);
 
-	QVulkanWindow window;
-	window.setVulkanInstance(&inst);
-	window.show();
+	auto *mainWindow = new QWidget();
+	mainWindow->setWindowTitle("BeamCast GUI");
 
-	window.setTitle("BeamCast GUI");
+	// Layout: Vulkan container and a Quit button side by side
+	auto *layout = new QHBoxLayout(mainWindow);
+	layout->setContentsMargins(8, 8, 8, 8);
+	layout->setSpacing(8);
+	vulkanContainer->setMinimumSize(640, 480);
+	vulkanContainer->setFocusPolicy(Qt::StrongFocus);
+	vulkanContainer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+	layout->addWidget(vulkanContainer, /*stretch*/ 1);
+	auto *quitButton = new QPushButton("Quit", mainWindow);
+	quitButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+	layout->addWidget(quitButton);
+	QObject::connect(quitButton, &QPushButton::clicked, &app, &QApplication::quit);
+	mainWindow->resize(1024, 600);
+	mainWindow->show();
 
 	app.exec();
+
+	delete vulkanContainer;
 
 	return 0;
 }
