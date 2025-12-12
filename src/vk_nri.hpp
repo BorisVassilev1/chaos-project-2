@@ -1,6 +1,5 @@
 #pragma once
 #include "nri.hpp"
-#include "vulkan/vulkan.hpp"
 #include <memory>
 #include <optional>
 #include <vulkan/vulkan_raii.hpp>
@@ -145,7 +144,6 @@ class VulkanNRIQWindow : public NRIQWindow {
 
 	std::unique_ptr<VulkanNRICommandBuffer> commandBuffer;
 
-
    public:
 	VulkanNRIQWindow(const VulkanNRI &nri);
 
@@ -185,10 +183,12 @@ class VulkanNRI : public NRI {
 		std::optional<uint32_t> graphicsFamily;
 	};
 
-	const vk::raii::Instance   &getInstance() const { return instance; }
-	const vk::raii::Device	   &getDevice() const { return device; }
+	const vk::raii::Instance	   &getInstance() const { return instance; }
+	const vk::raii::Device		   &getDevice() const { return device; }
 	const vk::raii::PhysicalDevice &getPhysicalDevice() const { return physicalDevice; }
-	const VulkanNRICommandPool &getDefaultCommandPool() const { return defaultCommandPool; }
+	const VulkanNRICommandPool	   &getDefaultCommandPool() const { return defaultCommandPool; }
+
+	void synchronize() const override { device.waitIdle(); }
 
    private:
 	QueueFamilyIndices queueFamilyIndices;

@@ -199,6 +199,8 @@ class NRI {
 	virtual std::unique_ptr<NRICommandPool>	  createCommandPool() const									   = 0;
 
 	virtual NRIQWindow *createQWidgetSurface(QApplication &app) const = 0;
+
+	virtual void synchronize() const = 0;
 };
 
 inline constexpr NRI::BufferUsage operator|(NRI::BufferUsage a, NRI::BufferUsage b) {
