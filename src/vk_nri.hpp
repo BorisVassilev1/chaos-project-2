@@ -1,4 +1,5 @@
 #pragma once
+#include <qelapsedtimer.h>
 #include "nri.hpp"
 #include <memory>
 #include <optional>

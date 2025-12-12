@@ -432,7 +432,7 @@ void VulkanNRIQWindow::createSwapChain(uint32_t &width, uint32_t &height) {
 		vk::SharingMode::eExclusive, 0, nullptr, vk::SurfaceTransformFlagBitsKHR::eIdentity,
 		vk::CompositeAlphaFlagBitsKHR::eOpaque, vk::PresentModeKHR::eFifo, VK_TRUE, nullptr);
 
-	PFN_vkCreateSwapchainKHR vkCreateSwapchainKHR =
+	static PFN_vkCreateSwapchainKHR vkCreateSwapchainKHR =
 		reinterpret_cast<PFN_vkCreateSwapchainKHR>(nri.getInstance().getProcAddr("vkCreateSwapchainKHR"));
 	assert(vkCreateSwapchainKHR != nullptr);
 
@@ -457,6 +457,9 @@ void VulkanNRIQWindow::createSwapChain(uint32_t &width, uint32_t &height) {
 			VulkanNRIImage2D(image, vk::ImageLayout::eUndefined, vk::Format::eB8G8R8A8Unorm, nri.getDevice(),
 							 std::move(imageView), width, height);
 		this->swapChainImages.push_back(std::move(nriImage));
+		this->swapChainImages.back().transitionLayout(
+			*commandBuffer, vk::ImageLayout::ePresentSrcKHR, vk::AccessFlagBits::eNone, vk::AccessFlagBits::eMemoryRead,
+			vk::PipelineStageFlagBits::eTopOfPipe, vk::PipelineStageFlagBits::eBottomOfPipe);
 	}
 }
 
@@ -506,7 +509,7 @@ NRIQWindow *VulkanNRI::createQWidgetSurface(QApplication &app) const {
 	auto *X11App = app.nativeInterface<QNativeInterface::QX11Application>();
 	assert(X11App);
 
-	PFN_vkCreateXlibSurfaceKHR vkCreateXlibSurfaceKHR =
+	static PFN_vkCreateXlibSurfaceKHR vkCreateXlibSurfaceKHR =
 		reinterpret_cast<PFN_vkCreateXlibSurfaceKHR>(instance.getProcAddr("vkCreateXlibSurfaceKHR"));
 	assert(vkCreateXlibSurfaceKHR != nullptr);
 
