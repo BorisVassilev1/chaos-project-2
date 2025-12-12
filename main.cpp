@@ -44,6 +44,13 @@ int main(int argc, char *argv[]) {
 	QApplication app(argc, argv);
 
 	auto window = nri.createQWidgetSurface(app);
+	QTimer t {};
+
+	window->connect(&t, &QTimer::timeout, [window]() { window->drawFrame(); });
+	t.start(16);
+	
+	//window->drawFrame(); // Draw one frame for demonstration
+
 	QWidget *vulkanContainer = QWidget::createWindowContainer(window);
 
 	auto *mainWindow = new QWidget();
@@ -66,6 +73,7 @@ int main(int argc, char *argv[]) {
 
 	app.exec();
 
+	cmdQueue->synchronize();
 	delete vulkanContainer;
 
 	return 0;

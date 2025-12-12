@@ -190,15 +190,15 @@ class NRI {
 		MemoryRequirements &setTypeRequest(MemoryTypeRequest tr);
 	};
 
-	virtual std::unique_ptr<NRIBuffer>		  createBuffer(std::size_t size, BufferUsage usage)		= 0;
+	virtual std::unique_ptr<NRIBuffer>		  createBuffer(std::size_t size, BufferUsage usage) const	   = 0;
 	virtual std::unique_ptr<NRIImage2D>		  createImage2D(uint32_t width, uint32_t height, Format fmt,
-															ImageUsage usage)						= 0;
-	virtual std::unique_ptr<NRIAllocation>	  allocateMemory(MemoryRequirements memoryRequirements) = 0;
-	virtual std::unique_ptr<NRICommandQueue>  createCommandQueue()									= 0;
-	virtual std::unique_ptr<NRICommandBuffer> createCommandBuffer(NRICommandPool &commandPool)		= 0;
-	virtual std::unique_ptr<NRICommandPool>	  createCommandPool()									= 0;
+															ImageUsage usage) const						   = 0;
+	virtual std::unique_ptr<NRIAllocation>	  allocateMemory(MemoryRequirements memoryRequirements) const  = 0;
+	virtual std::unique_ptr<NRICommandQueue>  createCommandQueue() const								   = 0;
+	virtual std::unique_ptr<NRICommandBuffer> createCommandBuffer(const NRICommandPool &commandPool) const = 0;
+	virtual std::unique_ptr<NRICommandPool>	  createCommandPool() const									   = 0;
 
-	virtual NRIQWindow* createQWidgetSurface(QApplication &app) = 0;
+	virtual NRIQWindow *createQWidgetSurface(QApplication &app) const = 0;
 };
 
 inline constexpr NRI::BufferUsage operator|(NRI::BufferUsage a, NRI::BufferUsage b) {
@@ -253,4 +253,6 @@ class NRICommandBuffer {
 class NRIQWindow : public QWindow {
    public:
 	virtual ~NRIQWindow() {}
+
+	virtual void drawFrame() = 0;
 };

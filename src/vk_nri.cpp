@@ -7,6 +7,7 @@
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_raii.hpp>
 #include <X11/Xlib.h>
+#include <vulkan/vulkan_core.h>
 #include <vulkan/vulkan_xlib.h>
 
 static const std::vector<const char *> validationLayers = {
@@ -274,10 +275,13 @@ void VulkanNRI::createLogicalDevice() {
 	device = vk::raii::Device(physicalDevice, createInfo);
 }
 
-VulkanNRI::VulkanNRI() : instance(nullptr), physicalDevice(nullptr), device(nullptr) {
+VulkanNRI::VulkanNRI() : instance(nullptr), physicalDevice(nullptr), device(nullptr), defaultCommandPool(nullptr) {
 	createInstance();
 	pickPhysicalDevice();
 	createLogicalDevice();
+
+	auto dcp		   = createCommandPool();
+	defaultCommandPool = std::move(static_cast<VulkanNRICommandPool &>(*dcp));
 
 	std::cout << "VulkanNRI initialized with device: " << physicalDevice.getProperties().deviceName << std::endl;
 }
@@ -301,11 +305,11 @@ NRI::MemoryRequirements &NRI::MemoryRequirements::setTypeRequest(MemoryTypeReque
 }
 
 std::unique_ptr<NRIImage2D> VulkanNRI::createImage2D(uint32_t width, uint32_t height, NRI::Format format,
-													 NRI::ImageUsage usage) {
+													 NRI::ImageUsage usage) const {
 	assert(format != NRI::Format::FORMAT_UNDEFINED);
 	assert(format < NRI::Format::_FORMAT_NUM);
 	assert(width > 0 && height > 0);
-	VkFormat vkFormat = nriFormat2vkFormat[static_cast<int>(format)];
+	vk::Format vkFormat = (vk::Format)nriFormat2vkFormat[static_cast<int>(format)];
 
 	vk::ImageCreateInfo imageInfo({}, vk::ImageType::e2D, vk::Format(vkFormat),
 								  vk::Extent3D(static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1), 1, 1,
@@ -315,10 +319,11 @@ std::unique_ptr<NRIImage2D> VulkanNRI::createImage2D(uint32_t width, uint32_t he
 
 	vk::raii::Image image = vk::raii::Image(device, imageInfo);
 
-	return std::make_unique<VulkanNRIImage2D>(std::move(image), vk::ImageLayout::eUndefined, device, width, height);
+	return std::make_unique<VulkanNRIImage2D>(std::move(image), vk::ImageLayout::eUndefined, vkFormat, device,
+											  vk::raii::ImageView(nullptr), width, height);
 }
 
-std::unique_ptr<NRIBuffer> VulkanNRI::createBuffer(std::size_t size, NRI::BufferUsage usage) {
+std::unique_ptr<NRIBuffer> VulkanNRI::createBuffer(std::size_t size, NRI::BufferUsage usage) const {
 	vk::BufferUsageFlags bufferUsageFlags;
 	if (usage & NRI::BufferUsage::BUFFER_USAGE_VERTEX) bufferUsageFlags |= vk::BufferUsageFlagBits::eVertexBuffer;
 	if (usage & NRI::BufferUsage::BUFFER_USAGE_INDEX) bufferUsageFlags |= vk::BufferUsageFlagBits::eIndexBuffer;
@@ -335,7 +340,8 @@ std::unique_ptr<NRIBuffer> VulkanNRI::createBuffer(std::size_t size, NRI::Buffer
 }
 
 NRI::MemoryRequirements VulkanNRIImage2D::getMemoryRequirements() {
-	vk::MemoryRequirements memRequirements = image.getMemoryRequirements();
+	VkMemoryRequirements memRequirements;
+	vkGetImageMemoryRequirements(*device, image.get(), &memRequirements);
 
 	return NRI::MemoryRequirements(memRequirements.size, NRI::MemoryTypeRequest::MEMORY_TYPE_DEVICE,
 								   memRequirements.alignment);
@@ -344,7 +350,15 @@ NRI::MemoryRequirements VulkanNRIImage2D::getMemoryRequirements() {
 void VulkanNRIImage2D::bindMemory(NRIAllocation &allocation, std::size_t offset) {
 	VulkanNRIAllocation &vulkanAllocation = static_cast<VulkanNRIAllocation &>(allocation);
 
-	image.bindMemory(vulkanAllocation.getMemory(), offset);
+	vkBindImageMemory(*device, image.get(), vulkanAllocation.getMemory(), offset);
+
+	vk::ImageViewCreateInfo imageViewInfo(
+		{}, image.get(), vk::ImageViewType::e2D, vk::Format(this->format),
+		vk::ComponentMapping(vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity,
+							 vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity),
+		vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1));
+
+	vk::raii::ImageView imageView = vk::raii::ImageView(device, imageViewInfo);
 }
 
 void VulkanNRIImage2D::clear(NRICommandBuffer &commandBuffer, glm::vec4 color) {
@@ -356,7 +370,7 @@ void VulkanNRIImage2D::clear(NRICommandBuffer &commandBuffer, glm::vec4 color) {
 	transitionLayout(vkBuf, vk::ImageLayout::eTransferDstOptimal, vk::AccessFlagBits::eNone,
 					 vk::AccessFlagBits::eTransferWrite, vk::PipelineStageFlagBits::eTopOfPipe,
 					 vk::PipelineStageFlagBits::eTransfer);
-	vkBuf.commandBuffer.clearColorImage(image, vk::ImageLayout::eTransferDstOptimal, v,
+	vkBuf.commandBuffer.clearColorImage(image.get(), vk::ImageLayout::eTransferDstOptimal, v,
 										{vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1)});
 }
 
@@ -366,12 +380,12 @@ void VulkanNRIImage2D::transitionLayout(NRICommandBuffer &commandBuffer, vk::Ima
 	auto &vkBuf = static_cast<VulkanNRICommandBuffer &>(commandBuffer);
 
 	vk::ImageMemoryBarrier barrier(srcAccess, dstAccess, layout, newLayout, vk::QueueFamilyIgnored,
-								   vk::QueueFamilyIgnored, image, {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
+								   vk::QueueFamilyIgnored, image.get(), {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
 	vkBuf.begin();
 	vkBuf.commandBuffer.pipelineBarrier(srcStage, dstStage, vk::DependencyFlagBits::eByRegion, {}, {}, {barrier});
 }
 
-std::unique_ptr<NRICommandPool> VulkanNRI::createCommandPool() {
+std::unique_ptr<NRICommandPool> VulkanNRI::createCommandPool() const {
 	vk::CommandPoolCreateInfo poolCI(vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
 									 queueFamilyIndices.graphicsFamily.value());
 
@@ -380,7 +394,7 @@ std::unique_ptr<NRICommandPool> VulkanNRI::createCommandPool() {
 	return std::make_unique<VulkanNRICommandPool>(std::move(pool));
 }
 
-std::unique_ptr<NRICommandQueue> VulkanNRI::createCommandQueue() {
+std::unique_ptr<NRICommandQueue> VulkanNRI::createCommandQueue() const {
 	vk::CommandPoolCreateInfo poolCI(vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
 									 queueFamilyIndices.graphicsFamily.value());
 
@@ -391,8 +405,103 @@ std::unique_ptr<NRICommandQueue> VulkanNRI::createCommandQueue() {
 	return std::make_unique<VulkanNRICommandQueue>(std::move(queue));
 };
 
-NRIQWindow *VulkanNRI::createQWidgetSurface(QApplication &app) {
-	auto *window = new VulkanNRIQWindow();
+VulkanNRIQWindow::VulkanNRIQWindow(const VulkanNRI &nri)
+	: surface(nullptr),
+	  swapChain(nullptr),
+	  presentQueue(nullptr),
+	  imageAvailableSemaphore(nri.getDevice(), vk::SemaphoreCreateInfo()),
+	  renderFinishedSemaphore(nri.getDevice(), vk::SemaphoreCreateInfo()),
+	  inFlightFence(nri.getDevice(), vk::FenceCreateInfo(vk::FenceCreateFlagBits::eSignaled)),
+	  nri(nri) {
+	if (imageAvailableSemaphore == nullptr || renderFinishedSemaphore == nullptr || inFlightFence == nullptr) {
+		throw std::runtime_error("Failed to create synchronization objects for a frame!");
+	}
+	commandBuffer = std::unique_ptr<VulkanNRICommandBuffer>(
+		(VulkanNRICommandBuffer *)nri.createCommandBuffer(nri.getDefaultCommandPool()).release());
+}
+
+void VulkanNRIQWindow::createSwapChain(uint32_t &width, uint32_t &height) {
+	vk::SurfaceCapabilitiesKHR capabilities = nri.getPhysicalDevice().getSurfaceCapabilitiesKHR(*surface);
+
+	width  = capabilities.currentExtent.width;
+	height = capabilities.currentExtent.height;
+
+	vk::SwapchainCreateInfoKHR swapChainInfo(
+		{}, *surface, capabilities.minImageCount + 1, vk::Format::eB8G8R8A8Unorm, vk::ColorSpaceKHR::eSrgbNonlinear,
+		capabilities.currentExtent, 1, vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eTransferDst,
+		vk::SharingMode::eExclusive, 0, nullptr, vk::SurfaceTransformFlagBitsKHR::eIdentity,
+		vk::CompositeAlphaFlagBitsKHR::eOpaque, vk::PresentModeKHR::eFifo, VK_TRUE, nullptr);
+
+	PFN_vkCreateSwapchainKHR vkCreateSwapchainKHR =
+		reinterpret_cast<PFN_vkCreateSwapchainKHR>(nri.getInstance().getProcAddr("vkCreateSwapchainKHR"));
+	assert(vkCreateSwapchainKHR != nullptr);
+
+	VkSwapchainKHR _swapChain;
+	if (vkCreateSwapchainKHR(*nri.getDevice(), (VkSwapchainCreateInfoKHR *)&swapChainInfo, nullptr, &_swapChain) !=
+		VK_SUCCESS) {
+		throw std::runtime_error("Failed to create Vulkan swap chain!");
+	}
+
+	swapChain = vk::raii::SwapchainKHR(nri.getDevice(), _swapChain);
+	auto swapChainImages = swapChain.getImages();
+	this->swapChainImages.clear();
+	for (const auto &image : swapChainImages) {
+		vk::ImageViewCreateInfo imageViewInfo(
+			{}, image, vk::ImageViewType::e2D, vk::Format::eB8G8R8A8Unorm,
+			vk::ComponentMapping(vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity,
+								 vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity),
+			vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1));
+		vk::raii::ImageView imageView = vk::raii::ImageView(nri.getDevice(), imageViewInfo);
+
+		VulkanNRIImage2D nriImage =
+			VulkanNRIImage2D(image, vk::ImageLayout::eUndefined, vk::Format::eB8G8R8A8Unorm, nri.getDevice(),
+							 std::move(imageView), width, height);
+		this->swapChainImages.push_back(std::move(nriImage));
+	}
+}
+
+void VulkanNRIQWindow::drawFrame() {
+	auto result = nri.getDevice().waitForFences({inFlightFence}, VK_TRUE, UINT64_MAX);
+	assert(result == vk::Result::eSuccess);
+	nri.getDevice().resetFences({inFlightFence});
+	assert(result == vk::Result::eSuccess);
+	auto imageIndex = swapChain.acquireNextImage(UINT64_MAX, *imageAvailableSemaphore, nullptr);
+
+	static int frameCount = 0;
+	++frameCount;
+
+	commandBuffer->begin();
+
+	swapChainImages[imageIndex.value].clear(*commandBuffer, glm::vec4(0.0f, glm::sin(frameCount / 50.f) * 0.5f + 0.5f, 0.0f, 1.0f));
+	swapChainImages[imageIndex.value].transitionLayout(
+		*commandBuffer, vk::ImageLayout::ePresentSrcKHR, vk::AccessFlagBits::eTransferWrite,
+		vk::AccessFlagBits::eMemoryRead, vk::PipelineStageFlagBits::eTransfer,
+		vk::PipelineStageFlagBits::eBottomOfPipe);
+
+	commandBuffer->end();
+
+	vk::PipelineStageFlags stages = {vk::PipelineStageFlagBits::eColorAttachmentOutput};
+	presentQueue.submit(vk::SubmitInfo(1, &(*imageAvailableSemaphore), &stages, 1, &*commandBuffer->commandBuffer, 1,
+									   &(*renderFinishedSemaphore)),
+						*inFlightFence);
+
+	vk::PresentInfoKHR presentInfo =
+		vk::PresentInfoKHR(1, &*renderFinishedSemaphore, 1, &*swapChain, &imageIndex.value);
+
+	result = presentQueue.presentKHR(presentInfo);
+	if (result == vk::Result::eErrorOutOfDateKHR || result == vk::Result::eSuboptimalKHR) {
+		vkDeviceWaitIdle(*nri.getDevice());
+		uint32_t width, height;
+		createSwapChain(width, height);
+	} else {
+		assert(result == vk::Result::eSuccess);
+	}
+
+	presentQueue.waitIdle();
+}
+
+NRIQWindow *VulkanNRI::createQWidgetSurface(QApplication &app) const {
+	auto *window = new VulkanNRIQWindow(*this);
 
 	auto *X11App = app.nativeInterface<QNativeInterface::QX11Application>();
 	assert(X11App);
@@ -413,28 +522,22 @@ NRIQWindow *VulkanNRI::createQWidgetSurface(QApplication &app) {
 
 	window->getSurface() = vk::raii::SurfaceKHR(instance, surface);
 
-	vk::SurfaceCapabilitiesKHR capabilities = physicalDevice.getSurfaceCapabilitiesKHR(*window->getSurface());
-	vk::SwapchainCreateInfoKHR swapChainInfo(
-		{}, *window->getSurface(), capabilities.minImageCount, vk::Format::eB8G8R8A8Unorm,
-		vk::ColorSpaceKHR::eSrgbNonlinear, capabilities.currentExtent, 1, vk::ImageUsageFlagBits::eColorAttachment,
-		vk::SharingMode::eExclusive, 0, nullptr, vk::SurfaceTransformFlagBitsKHR::eIdentity,
-		vk::CompositeAlphaFlagBitsKHR::eOpaque, vk::PresentModeKHR::eFifo, VK_TRUE, nullptr);
+	vk::Bool32 presentSupport =
+		physicalDevice.getSurfaceSupportKHR(queueFamilyIndices.graphicsFamily.value(), *window->getSurface());
+	if (!presentSupport) { throw std::runtime_error("Selected GPU does not support presentation to the surface!"); }
 
-	PFN_vkCreateSwapchainKHR vkCreateSwapchainKHR =
-		reinterpret_cast<PFN_vkCreateSwapchainKHR>(instance.getProcAddr("vkCreateSwapchainKHR"));
-	assert(vkCreateSwapchainKHR != nullptr);
+	uint32_t width;
+	uint32_t height;
+	window->createSwapChain(width, height);
 
-	VkSwapchainKHR swapChain;
-	if (vkCreateSwapchainKHR((vk::Device)device, (VkSwapchainCreateInfoKHR *)&swapChainInfo, nullptr, &swapChain) !=
-		VK_SUCCESS) {
-		throw std::runtime_error("Failed to create Vulkan swap chain!");
-	}
-	window->getSwapChain() = vk::raii::SwapchainKHR(device, swapChain);
+	vk::raii::Queue presentQueue = vk::raii::Queue(device, queueFamilyIndices.graphicsFamily.value(), 0);
+	window->getPresentQueue()	 = std::move(presentQueue);
+
 
 	return window;
 }
 
-std::unique_ptr<NRIAllocation> VulkanNRI::allocateMemory(NRI::MemoryRequirements memoryRequirements) {
+std::unique_ptr<NRIAllocation> VulkanNRI::allocateMemory(NRI::MemoryRequirements memoryRequirements) const {
 	vk::MemoryPropertyFlags properties;
 	if (memoryRequirements.typeRequest & NRI::MemoryTypeRequest::MEMORY_TYPE_UPLOAD)
 		properties |= vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent;
@@ -462,8 +565,8 @@ std::unique_ptr<NRIAllocation> VulkanNRI::allocateMemory(NRI::MemoryRequirements
 	return std::make_unique<VulkanNRIAllocation>(std::move(memory), device);
 }
 
-std::unique_ptr<NRICommandBuffer> VulkanNRI::createCommandBuffer(NRICommandPool &pool) {
-	vk::CommandBufferAllocateInfo allocInfo(static_cast<VulkanNRICommandPool &>(pool).commandPool,
+std::unique_ptr<NRICommandBuffer> VulkanNRI::createCommandBuffer(const NRICommandPool &pool) const {
+	vk::CommandBufferAllocateInfo allocInfo(static_cast<const VulkanNRICommandPool &>(pool).commandPool,
 											vk::CommandBufferLevel::ePrimary, 1);
 	vk::raii::CommandBuffers	  buffers(device, allocInfo);
 	return std::make_unique<VulkanNRICommandBuffer>(std::move(buffers[0]));

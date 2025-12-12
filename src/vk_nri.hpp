@@ -7,6 +7,25 @@
 
 #include <iostream>
 
+/// A helper class to manage ownership of an object or a reference to an object
+/// template arguments can be for example: <vk::raii::Buffer, vk::Buffer>
+template <class Owner, class NotOwner>
+class OwnerOrNot {
+	std::variant<Owner, NotOwner> data;
+	bool						  isOwner;
+
+   public:
+	OwnerOrNot(Owner &&owner) : data(std::move(owner)), isOwner(true) {}
+	OwnerOrNot(NotOwner &notOwner) : data(notOwner), isOwner(false) {}
+	NotOwner get() {
+		if (isOwner) {
+			return (NotOwner)std::get<Owner>(data);
+		} else {
+			return std::get<NotOwner>(data);
+		}
+	}
+};
+
 class VulkanNRIAllocation : public NRIAllocation {
 	vk::raii::DeviceMemory memory;
 	vk::Device			   device;
@@ -30,20 +49,38 @@ class VulkanNRIBuffer : public NRIBuffer {
 };
 
 class VulkanNRIImage2D : public NRIImage2D {
-	vk::raii::Image image;
-	vk::Device		device;
-	vk::ImageLayout layout;
+	OwnerOrNot<vk::raii::Image, vk::Image> image;
+	const vk::raii::Device				  &device;
+	vk::ImageLayout						   layout;
+	vk::Format							   format;
+	vk::raii::ImageView					   imageView;
 
 	uint32_t width;
 	uint32_t height;
 
+   public:
 	void transitionLayout(NRICommandBuffer &commandBuffer, vk::ImageLayout newLayout, vk::AccessFlagBits srcAccess,
 						  vk::AccessFlagBits dstAccess, vk::PipelineStageFlags srcStage,
 						  vk::PipelineStageFlags dstStage);
 
-   public:
-	VulkanNRIImage2D(vk::raii::Image &&img, vk::ImageLayout layout, vk::Device dev, uint32_t width, uint32_t height)
-		: image(std::move(img)), device(dev), layout(layout), width(width), height(height) {}
+	VulkanNRIImage2D(vk::raii::Image &&img, vk::ImageLayout layout, vk::Format fmt, const vk::raii::Device &dev,
+					 vk::raii::ImageView &&imgView, uint32_t width, uint32_t height)
+		: image(std::move(img)),
+		  device(dev),
+		  layout(layout),
+		  format(fmt),
+		  imageView(std::move(imgView)),
+		  width(width),
+		  height(height) {}
+	VulkanNRIImage2D(vk::Image img, vk::ImageLayout layout, vk::Format fmt, const vk::raii::Device &dev,
+					 vk::raii::ImageView &&imgView, uint32_t width, uint32_t height)
+		: image(img),
+		  device(dev),
+		  layout(layout),
+		  format(fmt),
+		  imageView(std::move(imgView)),
+		  width(width),
+		  height(height) {}
 
 	NRI::MemoryRequirements getMemoryRequirements() override;
 	void					bindMemory(NRIAllocation &allocation, std::size_t offset) override;
@@ -91,27 +128,42 @@ class VulkanNRICommandBuffer : public NRICommandBuffer {
 	VulkanNRICommandBuffer(vk::raii::CommandBuffer &&cmdBuf) : commandBuffer(std::move(cmdBuf)), isRecording(false) {}
 };
 
+class VulkanNRI;
+
 class VulkanNRIQWindow : public NRIQWindow {
-	vk::raii::SurfaceKHR surface;
+	vk::raii::SurfaceKHR   surface;
 	vk::raii::SwapchainKHR swapChain;
+	vk::raii::Queue		   presentQueue;
+
+	vk::raii::Semaphore imageAvailableSemaphore;
+	vk::raii::Semaphore renderFinishedSemaphore;
+	vk::raii::Fence		inFlightFence;
+
+	std::vector<VulkanNRIImage2D> swapChainImages;
+
+	const VulkanNRI &nri;
+
+	std::unique_ptr<VulkanNRICommandBuffer> commandBuffer;
+
 
    public:
-	VulkanNRIQWindow() : surface(nullptr), swapChain(nullptr) {}
+	VulkanNRIQWindow(const VulkanNRI &nri);
 
-	void closeEvent(QCloseEvent *event) override {
-		QWindow::closeEvent(event);
-		surface = nullptr;
-	}
+	void createSwapChain(uint32_t &width, uint32_t &height);
+	void drawFrame() override;
 
-	vk::raii::SurfaceKHR &getSurface() { return surface; }
-	vk::raii::SwapchainKHR &getSwapChain() { return swapChain; }
-
+	vk::raii::SurfaceKHR		  &getSurface() { return surface; }
+	vk::raii::SwapchainKHR		  &getSwapChain() { return swapChain; }
+	vk::raii::Queue				  &getPresentQueue() { return presentQueue; }
+	std::vector<VulkanNRIImage2D> &getSwapChainImages() { return swapChainImages; }
 };
 
 class VulkanNRI : public NRI {
 	vk::raii::Instance		 instance;
 	vk::raii::PhysicalDevice physicalDevice;
 	vk::raii::Device		 device;
+
+	VulkanNRICommandPool defaultCommandPool;
 
 	void createInstance();
 	void pickPhysicalDevice();
@@ -120,20 +172,23 @@ class VulkanNRI : public NRI {
    public:
 	VulkanNRI();
 
-	std::unique_ptr<NRIBuffer>		  createBuffer(std::size_t size, BufferUsage usage) override;
+	std::unique_ptr<NRIBuffer>		  createBuffer(std::size_t size, BufferUsage usage) const override;
 	std::unique_ptr<NRIImage2D>		  createImage2D(uint32_t width, uint32_t height, NRI::Format fmt,
-													NRI::ImageUsage usage) override;
-	std::unique_ptr<NRIAllocation>	  allocateMemory(MemoryRequirements memoryRequirements) override;
-	std::unique_ptr<NRICommandQueue>  createCommandQueue() override;
-	std::unique_ptr<NRICommandBuffer> createCommandBuffer(NRICommandPool &commandPool) override;
-	std::unique_ptr<NRICommandPool>	  createCommandPool() override;
-	NRIQWindow* createQWidgetSurface(QApplication &app) override;
+													NRI::ImageUsage usage) const override;
+	std::unique_ptr<NRIAllocation>	  allocateMemory(MemoryRequirements memoryRequirements) const override;
+	std::unique_ptr<NRICommandQueue>  createCommandQueue() const override;
+	std::unique_ptr<NRICommandBuffer> createCommandBuffer(const NRICommandPool &commandPool) const override;
+	std::unique_ptr<NRICommandPool>	  createCommandPool() const override;
+	NRIQWindow						 *createQWidgetSurface(QApplication &app) const override;
 
 	struct QueueFamilyIndices {
 		std::optional<uint32_t> graphicsFamily;
 	};
 
-	vk::raii::Instance &getInstance() { return instance; }
+	const vk::raii::Instance   &getInstance() const { return instance; }
+	const vk::raii::Device	   &getDevice() const { return device; }
+	const vk::raii::PhysicalDevice &getPhysicalDevice() const { return physicalDevice; }
+	const VulkanNRICommandPool &getDefaultCommandPool() const { return defaultCommandPool; }
 
    private:
 	QueueFamilyIndices queueFamilyIndices;
