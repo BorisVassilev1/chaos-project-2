@@ -8,7 +8,7 @@ set(CMAKE_PREFIX_PATH ${CMAKE_PREFIX_PATH} ${QT6_DIR})
 find_package (Vulkan REQUIRED)
 find_package (Qt6 REQUIRED COMPONENTS Core Gui Widgets)
 
-file(GLOB SOURCE_FILES src/*.cpp)
+file(GLOB SOURCE_FILES native/*.cpp beamcast/*.cpp)
 
 add_executable(${PROJECT_NAME} main.cpp ${SOURCE_FILES})
 

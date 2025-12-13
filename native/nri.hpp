@@ -8,6 +8,7 @@
 	#include <glm.hpp>
 #endif
 #include <QtWidgets>
+#include <iostream>
 
 class NRIBuffer;
 class NRIAllocation;
@@ -16,6 +17,7 @@ class NRICommandPool;
 class NRICommandQueue;
 class NRICommandBuffer;
 class NRIQWindow;
+class Renderer;
 
 /// NRI - Native Rendering Interface
 class NRI {
@@ -198,7 +200,7 @@ class NRI {
 	virtual std::unique_ptr<NRICommandBuffer> createCommandBuffer(const NRICommandPool &commandPool) const = 0;
 	virtual std::unique_ptr<NRICommandPool>	  createCommandPool() const									   = 0;
 
-	virtual NRIQWindow *createQWidgetSurface(QApplication &app) const = 0;
+	virtual NRIQWindow *createQWidgetSurface(QApplication &app, std::unique_ptr<Renderer> &&renderer) const = 0;
 
 	virtual void synchronize() const = 0;
 };
@@ -232,6 +234,7 @@ class NRIImage2D {
 	virtual void					bindMemory(NRIAllocation &allocation, std::size_t offset) = 0;
 
 	virtual void clear(NRICommandBuffer &commandBuffer, glm::vec4 color) = 0;
+	virtual void prepareForPresent(NRICommandBuffer &commandBuffer)		 = 0;
 };
 
 class NRICommandPool {
@@ -250,11 +253,43 @@ class NRICommandQueue {
 class NRICommandBuffer {
    public:
 	virtual ~NRICommandBuffer() {}
+
+	virtual void begin() = 0;
+	virtual void end()	 = 0;
+};
+
+class Renderer {
+   public:
+	virtual void render(NRIImage2D &currentImage, NRICommandBuffer &cmdBuf) = 0;
+	virtual ~Renderer() {}
 };
 
 class NRIQWindow : public QWindow {
+   protected:
+	std::unique_ptr<Renderer> renderer;
+
+	using frameCallback = std::function<void()>;
+	std::vector<frameCallback> frameCallbacks;
+	QTimer					   timer;
+	const NRI				  &nri;
+
    public:
-	virtual ~NRIQWindow() {}
+	NRIQWindow(const NRI &nri, std::unique_ptr<Renderer> &&rendererPtr) : renderer(std::move(rendererPtr)), nri(nri) {
+		connect(&timer, &QTimer::timeout, [this]() {
+			drawFrame();
+			for (const auto &cb : frameCallbacks)
+				cb();
+		});
+		timer.start(0);
+	}
+
+	void addFrameCallback(const frameCallback &cb) { frameCallbacks.push_back(cb); }
+
+	void closeEvent(QCloseEvent *event) override {
+		QWindow::closeEvent(event);
+		std::cout << "Closing NRIQWindow, stopping timer..." << std::endl;
+		timer.stop();
+	}
 
 	virtual void drawFrame() = 0;
 };

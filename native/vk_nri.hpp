@@ -1,6 +1,7 @@
 #pragma once
 #include <qelapsedtimer.h>
 #include "nri.hpp"
+#include "nriFactory.hpp"
 #include <memory>
 #include <optional>
 #include <vulkan/vulkan_raii.hpp>
@@ -59,9 +60,8 @@ class VulkanNRIImage2D : public NRIImage2D {
 	uint32_t height;
 
    public:
-	void transitionLayout(NRICommandBuffer &commandBuffer, vk::ImageLayout newLayout, vk::AccessFlagBits srcAccess,
-						  vk::AccessFlagBits dstAccess, vk::PipelineStageFlags srcStage,
-						  vk::PipelineStageFlags dstStage);
+	void transitionLayout(NRICommandBuffer &commandBuffer, vk::ImageLayout newLayout, vk::AccessFlags srcAccess,
+						  vk::AccessFlags dstAccess, vk::PipelineStageFlags srcStage, vk::PipelineStageFlags dstStage);
 
 	VulkanNRIImage2D(vk::raii::Image &&img, vk::ImageLayout layout, vk::Format fmt, const vk::raii::Device &dev,
 					 vk::raii::ImageView &&imgView, uint32_t width, uint32_t height)
@@ -86,6 +86,8 @@ class VulkanNRIImage2D : public NRIImage2D {
 	void					bindMemory(NRIAllocation &allocation, std::size_t offset) override;
 
 	void clear(NRICommandBuffer &commandBuffer, glm::vec4 color) override;
+
+	void prepareForPresent(NRICommandBuffer &commandBuffer) override;
 };
 
 class VulkanNRICommandPool : public NRICommandPool {
@@ -110,7 +112,7 @@ class VulkanNRICommandBuffer : public NRICommandBuffer {
 	vk::raii::CommandBuffer commandBuffer;
 	bool					isRecording;
 
-	void begin() {
+	void begin() override {
 		if (!isRecording) {
 			vk::CommandBufferBeginInfo beginInfo;
 			commandBuffer.begin(beginInfo);
@@ -118,7 +120,7 @@ class VulkanNRICommandBuffer : public NRICommandBuffer {
 		}
 	}
 
-	void end() {
+	void end() override {
 		if (isRecording) {
 			commandBuffer.end();
 			isRecording = false;
@@ -141,12 +143,11 @@ class VulkanNRIQWindow : public NRIQWindow {
 
 	std::vector<VulkanNRIImage2D> swapChainImages;
 
-	const VulkanNRI &nri;
-
 	std::unique_ptr<VulkanNRICommandBuffer> commandBuffer;
 
+   protected:
    public:
-	VulkanNRIQWindow(const VulkanNRI &nri);
+	VulkanNRIQWindow(const VulkanNRI &nri, std::unique_ptr<Renderer> &&renderer);
 
 	void createSwapChain(uint32_t &width, uint32_t &height);
 	void drawFrame() override;
@@ -178,7 +179,7 @@ class VulkanNRI : public NRI {
 	std::unique_ptr<NRICommandQueue>  createCommandQueue() const override;
 	std::unique_ptr<NRICommandBuffer> createCommandBuffer(const NRICommandPool &commandPool) const override;
 	std::unique_ptr<NRICommandPool>	  createCommandPool() const override;
-	NRIQWindow						 *createQWidgetSurface(QApplication &app) const override;
+	NRIQWindow *createQWidgetSurface(QApplication &app, std::unique_ptr<Renderer> &&renderer) const override;
 
 	struct QueueFamilyIndices {
 		std::optional<uint32_t> graphicsFamily;

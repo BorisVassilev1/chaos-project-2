@@ -6,9 +6,7 @@
 #include <ostream>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_raii.hpp>
-#include <X11/Xlib.h>
 #include <vulkan/vulkan_core.h>
-#include <vulkan/vulkan_xlib.h>
 
 static const std::vector<const char *> validationLayers = {
 	"VK_LAYER_KHRONOS_validation"
@@ -176,7 +174,11 @@ bool checkValidationLayerSupport() {
 
 const char *extensions[] = {
 	"VK_KHR_surface",
+#ifdef __linux__
 	"VK_KHR_xlib_surface",
+#elif defined(_WIN32)
+	"VK_KHR_win32_surface",
+#endif
 };
 
 bool checkExtensionSupport() {
@@ -374,8 +376,18 @@ void VulkanNRIImage2D::clear(NRICommandBuffer &commandBuffer, glm::vec4 color) {
 										{vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1)});
 }
 
+void VulkanNRIImage2D::prepareForPresent(NRICommandBuffer &commandBuffer) {
+	auto &vkBuf = static_cast<VulkanNRICommandBuffer &>(commandBuffer);
+
+	transitionLayout(vkBuf, vk::ImageLayout::ePresentSrcKHR,
+					 vk::AccessFlagBits::eTransferWrite | vk::AccessFlagBits::eColorAttachmentWrite,
+					 vk::AccessFlagBits::eMemoryRead,
+					 vk::PipelineStageFlagBits::eTransfer | vk::PipelineStageFlagBits::eColorAttachmentOutput,
+					 vk::PipelineStageFlagBits::eBottomOfPipe);
+}
+
 void VulkanNRIImage2D::transitionLayout(NRICommandBuffer &commandBuffer, vk::ImageLayout newLayout,
-										vk::AccessFlagBits srcAccess, vk::AccessFlagBits dstAccess,
+										vk::AccessFlags srcAccess, vk::AccessFlags dstAccess,
 										vk::PipelineStageFlags srcStage, vk::PipelineStageFlags dstStage) {
 	auto &vkBuf = static_cast<VulkanNRICommandBuffer &>(commandBuffer);
 
@@ -405,14 +417,14 @@ std::unique_ptr<NRICommandQueue> VulkanNRI::createCommandQueue() const {
 	return std::make_unique<VulkanNRICommandQueue>(std::move(queue));
 };
 
-VulkanNRIQWindow::VulkanNRIQWindow(const VulkanNRI &nri)
-	: surface(nullptr),
+VulkanNRIQWindow::VulkanNRIQWindow(const VulkanNRI &nri, std::unique_ptr<Renderer> &&renderer)
+	: NRIQWindow(nri, std::move(renderer)),
+	  surface(nullptr),
 	  swapChain(nullptr),
 	  presentQueue(nullptr),
 	  imageAvailableSemaphore(nri.getDevice(), vk::SemaphoreCreateInfo()),
 	  renderFinishedSemaphore(nri.getDevice(), vk::SemaphoreCreateInfo()),
-	  inFlightFence(nri.getDevice(), vk::FenceCreateInfo(vk::FenceCreateFlagBits::eSignaled)),
-	  nri(nri) {
+	  inFlightFence(nri.getDevice(), vk::FenceCreateInfo(vk::FenceCreateFlagBits::eSignaled)) {
 	if (imageAvailableSemaphore == nullptr || renderFinishedSemaphore == nullptr || inFlightFence == nullptr) {
 		throw std::runtime_error("Failed to create synchronization objects for a frame!");
 	}
@@ -421,6 +433,7 @@ VulkanNRIQWindow::VulkanNRIQWindow(const VulkanNRI &nri)
 }
 
 void VulkanNRIQWindow::createSwapChain(uint32_t &width, uint32_t &height) {
+	auto					  &nri			= static_cast<const VulkanNRI &>(this->nri);
 	vk::SurfaceCapabilitiesKHR capabilities = nri.getPhysicalDevice().getSurfaceCapabilitiesKHR(*surface);
 
 	width  = capabilities.currentExtent.width;
@@ -430,7 +443,7 @@ void VulkanNRIQWindow::createSwapChain(uint32_t &width, uint32_t &height) {
 		{}, *surface, capabilities.minImageCount + 1, vk::Format::eB8G8R8A8Unorm, vk::ColorSpaceKHR::eSrgbNonlinear,
 		capabilities.currentExtent, 1, vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eTransferDst,
 		vk::SharingMode::eExclusive, 0, nullptr, vk::SurfaceTransformFlagBitsKHR::eIdentity,
-		vk::CompositeAlphaFlagBitsKHR::eOpaque, vk::PresentModeKHR::eFifo, VK_TRUE, nullptr);
+		vk::CompositeAlphaFlagBitsKHR::eOpaque, vk::PresentModeKHR::eFifo, VK_TRUE, *swapChain);
 
 	static PFN_vkCreateSwapchainKHR vkCreateSwapchainKHR =
 		reinterpret_cast<PFN_vkCreateSwapchainKHR>(nri.getInstance().getProcAddr("vkCreateSwapchainKHR"));
@@ -442,7 +455,7 @@ void VulkanNRIQWindow::createSwapChain(uint32_t &width, uint32_t &height) {
 		throw std::runtime_error("Failed to create Vulkan swap chain!");
 	}
 
-	swapChain = vk::raii::SwapchainKHR(nri.getDevice(), _swapChain);
+	swapChain			 = vk::raii::SwapchainKHR(nri.getDevice(), _swapChain);
 	auto swapChainImages = swapChain.getImages();
 	this->swapChainImages.clear();
 	for (const auto &image : swapChainImages) {
@@ -453,9 +466,8 @@ void VulkanNRIQWindow::createSwapChain(uint32_t &width, uint32_t &height) {
 			vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1));
 		vk::raii::ImageView imageView = vk::raii::ImageView(nri.getDevice(), imageViewInfo);
 
-		VulkanNRIImage2D nriImage =
-			VulkanNRIImage2D(image, vk::ImageLayout::eUndefined, vk::Format::eB8G8R8A8Unorm, nri.getDevice(),
-							 std::move(imageView), width, height);
+		VulkanNRIImage2D nriImage = VulkanNRIImage2D(image, vk::ImageLayout::eUndefined, vk::Format::eB8G8R8A8Unorm,
+													 nri.getDevice(), std::move(imageView), width, height);
 		this->swapChainImages.push_back(std::move(nriImage));
 		this->swapChainImages.back().transitionLayout(
 			*commandBuffer, vk::ImageLayout::ePresentSrcKHR, vk::AccessFlagBits::eNone, vk::AccessFlagBits::eMemoryRead,
@@ -464,24 +476,15 @@ void VulkanNRIQWindow::createSwapChain(uint32_t &width, uint32_t &height) {
 }
 
 void VulkanNRIQWindow::drawFrame() {
+	auto &nri = static_cast<const VulkanNRI &>(this->nri);
+
 	auto result = nri.getDevice().waitForFences({inFlightFence}, VK_TRUE, UINT64_MAX);
 	assert(result == vk::Result::eSuccess);
 	nri.getDevice().resetFences({inFlightFence});
 	assert(result == vk::Result::eSuccess);
 	auto imageIndex = swapChain.acquireNextImage(UINT64_MAX, *imageAvailableSemaphore, nullptr);
 
-	static int frameCount = 0;
-	++frameCount;
-
-	commandBuffer->begin();
-
-	swapChainImages[imageIndex.value].clear(*commandBuffer, glm::vec4(0.0f, glm::sin(frameCount / 50.f) * 0.5f + 0.5f, 0.0f, 1.0f));
-	swapChainImages[imageIndex.value].transitionLayout(
-		*commandBuffer, vk::ImageLayout::ePresentSrcKHR, vk::AccessFlagBits::eTransferWrite,
-		vk::AccessFlagBits::eMemoryRead, vk::PipelineStageFlagBits::eTransfer,
-		vk::PipelineStageFlagBits::eBottomOfPipe);
-
-	commandBuffer->end();
+	renderer->render(swapChainImages[imageIndex.value], *commandBuffer);
 
 	vk::PipelineStageFlags stages = {vk::PipelineStageFlagBits::eColorAttachmentOutput};
 	presentQueue.submit(vk::SubmitInfo(1, &(*imageAvailableSemaphore), &stages, 1, &*commandBuffer->commandBuffer, 1,
@@ -491,38 +494,75 @@ void VulkanNRIQWindow::drawFrame() {
 	vk::PresentInfoKHR presentInfo =
 		vk::PresentInfoKHR(1, &*renderFinishedSemaphore, 1, &*swapChain, &imageIndex.value);
 
-	result = presentQueue.presentKHR(presentInfo);
-	if (result == vk::Result::eErrorOutOfDateKHR || result == vk::Result::eSuboptimalKHR) {
-		vkDeviceWaitIdle(*nri.getDevice());
-		uint32_t width, height;
-		createSwapChain(width, height);
-	} else {
-		assert(result == vk::Result::eSuccess);
+	// result = presentQueue.presentKHR(presentInfo);
+	vk::Result res = (vk::Result)vkQueuePresentKHR(*presentQueue, &*presentInfo);
+	switch (res) {
+		case vk::Result::eSuccess: break;
+		case vk::Result::eErrorOutOfDateKHR:
+		case vk::Result::eSuboptimalKHR:
+			vkDeviceWaitIdle(*nri.getDevice());
+			uint32_t width, height;
+			createSwapChain(width, height);
+			break;
+		case vk::Result::eErrorSurfaceLostKHR: break;
+		default: assert(res == vk::Result::eSuccess);
 	}
 
 	presentQueue.waitIdle();
 }
 
-NRIQWindow *VulkanNRI::createQWidgetSurface(QApplication &app) const {
-	auto *window = new VulkanNRIQWindow(*this);
+static VkSurfaceKHR createSurface(QApplication &app, VulkanNRIQWindow &window, const VulkanNRI *nri);
 
+#ifdef __linux__
+	#include <X11/Xlib.h>
+	#include <vulkan/vulkan_xlib.h>
+
+VkSurfaceKHR createSurface(QApplication &app, VulkanNRIQWindow &window, const VulkanNRI *nri) {
 	auto *X11App = app.nativeInterface<QNativeInterface::QX11Application>();
 	assert(X11App);
 
 	static PFN_vkCreateXlibSurfaceKHR vkCreateXlibSurfaceKHR =
-		reinterpret_cast<PFN_vkCreateXlibSurfaceKHR>(instance.getProcAddr("vkCreateXlibSurfaceKHR"));
+		reinterpret_cast<PFN_vkCreateXlibSurfaceKHR>(nri->getInstance().getProcAddr("vkCreateXlibSurfaceKHR"));
 	assert(vkCreateXlibSurfaceKHR != nullptr);
 
 	VkXlibSurfaceCreateInfoKHR createInfo{};
 	createInfo.sType  = VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR;
 	createInfo.dpy	  = X11App->display();
-	createInfo.window = static_cast<Window>(window->winId());
+	createInfo.window = static_cast<Window>(window.winId());
 
 	VkSurfaceKHR surface;
-	if (vkCreateXlibSurfaceKHR((vk::Instance)instance, &createInfo, nullptr, &surface) != VK_SUCCESS) {
+	if (vkCreateXlibSurfaceKHR(*nri->getInstance(), &createInfo, nullptr, &surface) != VK_SUCCESS) {
 		throw std::runtime_error("Failed to create Vulkan XCB surface!");
 	}
+	return surface;
+}
+#endif
 
+#ifdef _WIN32
+#include <windows.h>
+#include <vulkan/vulkan_win32.h>
+VkSurfaceKHR createSurface(QApplication &app, VulkanNRIQWindow &window, const VulkanNRI *nri) {
+	
+	static PFN_vkCreateWin32SurfaceKHR vkCreateWin32SurfaceKHR =
+		reinterpret_cast<PFN_vkCreateWin32SurfaceKHR>(nri->getInstance().getProcAddr("vkCreateWin32SurfaceKHR"));
+	assert(vkCreateWin32SurfaceKHR != nullptr);
+
+	VkWin32SurfaceCreateInfoKHR createInfo{};
+	createInfo.sType     = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
+	createInfo.hwnd      = reinterpret_cast<HWND>(window.winId());
+
+	VkSurfaceKHR surface;
+	if (vkCreateWin32SurfaceKHR(*nri->getInstance(), &createInfo, nullptr, &surface) != VK_SUCCESS) {
+		throw std::runtime_error("Failed to create Vulkan Win32 surface!");
+	}
+	return surface;
+}
+#endif
+
+NRIQWindow *VulkanNRI::createQWidgetSurface(QApplication &app, std::unique_ptr<Renderer> &&renderer) const {
+	auto *window = new VulkanNRIQWindow(*this, std::move(renderer));
+
+	vk::SurfaceKHR surface = createSurface(app, *window, this);
 	window->getSurface() = vk::raii::SurfaceKHR(instance, surface);
 
 	vk::Bool32 presentSupport =
@@ -535,7 +575,6 @@ NRIQWindow *VulkanNRI::createQWidgetSurface(QApplication &app) const {
 
 	vk::raii::Queue presentQueue = vk::raii::Queue(device, queueFamilyIndices.graphicsFamily.value(), 0);
 	window->getPresentQueue()	 = std::move(presentQueue);
-
 
 	return window;
 }
@@ -583,3 +622,8 @@ void VulkanNRICommandQueue::submit(NRICommandBuffer &commandBuffer) {
 }
 
 void VulkanNRICommandQueue::synchronize() { queue.waitIdle(); }
+
+static int __asd = []() {
+	NRIFactory::getInstance().registerNRI("Vulkan", []() -> NRI * { return new VulkanNRI(); });
+	return 0;
+}();
