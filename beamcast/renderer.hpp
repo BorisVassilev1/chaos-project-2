@@ -18,4 +18,3 @@ class BeamcastRenderer : public Renderer {
 		cmdBuf.end();
 	}
 };
-

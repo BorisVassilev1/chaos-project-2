@@ -539,17 +539,16 @@ VkSurfaceKHR createSurface(QApplication &app, VulkanNRIQWindow &window, const Vu
 #endif
 
 #ifdef _WIN32
-#include <windows.h>
-#include <vulkan/vulkan_win32.h>
+	#include <windows.h>
+	#include <vulkan/vulkan_win32.h>
 VkSurfaceKHR createSurface(QApplication &app, VulkanNRIQWindow &window, const VulkanNRI *nri) {
-	
 	static PFN_vkCreateWin32SurfaceKHR vkCreateWin32SurfaceKHR =
 		reinterpret_cast<PFN_vkCreateWin32SurfaceKHR>(nri->getInstance().getProcAddr("vkCreateWin32SurfaceKHR"));
 	assert(vkCreateWin32SurfaceKHR != nullptr);
 
 	VkWin32SurfaceCreateInfoKHR createInfo{};
-	createInfo.sType     = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
-	createInfo.hwnd      = reinterpret_cast<HWND>(window.winId());
+	createInfo.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
+	createInfo.hwnd	 = reinterpret_cast<HWND>(window.winId());
 
 	VkSurfaceKHR surface;
 	if (vkCreateWin32SurfaceKHR(*nri->getInstance(), &createInfo, nullptr, &surface) != VK_SUCCESS) {
@@ -563,7 +562,7 @@ NRIQWindow *VulkanNRI::createQWidgetSurface(QApplication &app, std::unique_ptr<R
 	auto *window = new VulkanNRIQWindow(*this, std::move(renderer));
 
 	vk::SurfaceKHR surface = createSurface(app, *window, this);
-	window->getSurface() = vk::raii::SurfaceKHR(instance, surface);
+	window->getSurface()   = vk::raii::SurfaceKHR(instance, surface);
 
 	vk::Bool32 presentSupport =
 		physicalDevice.getSurfaceSupportKHR(queueFamilyIndices.graphicsFamily.value(), *window->getSurface());

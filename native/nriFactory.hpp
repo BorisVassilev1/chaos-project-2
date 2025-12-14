@@ -22,14 +22,17 @@ class NRIFactory {
 
 	NRI *createNRI(const std::string &name) const {
 		auto it = nriInfos.find(name);
-		if (it != nriInfos.end()) { return it->second(); }
-		else throw std::runtime_error("Native Rendering Interface not found: " + name);
+		if (it != nriInfos.end()) {
+			return it->second();
+		} else throw std::runtime_error("Native Rendering Interface not found: " + name);
 		return nullptr;
 	}
 
 	std::vector<std::string> getAvailableNRIs() const {
 		std::vector<std::string> names;
-		for (const auto &pair : nriInfos) { names.push_back(pair.first); }
+		for (const auto &pair : nriInfos) {
+			names.push_back(pair.first);
+		}
 		return names;
 	}
 
@@ -39,7 +42,7 @@ class NRIFactory {
 		dialog.setWindowTitle("Select an Option");
 
 		QVBoxLayout *layout = new QVBoxLayout(&dialog);
-	
+
 		std::string selectedString;
 
 		// Create a button for each string
