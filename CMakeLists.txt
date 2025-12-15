@@ -17,8 +17,12 @@ target_link_libraries (${PROJECT_NAME} Vulkan::Vulkan)
 target_link_libraries(${PROJECT_NAME} Qt6::Core Qt6::Gui Qt6::Widgets)
 target_include_directories(${PROJECT_NAME} PRIVATE ${Qt6Gui_PRIVATE_INCLUDE_DIRS})
 target_include_directories(${PROJECT_NAME} PRIVATE "C:/msys64/mingw64/include/glm")
-target_compile_options(${PROJECT_NAME} PUBLIC -fsanitize=address)
-target_link_options(${PROJECT_NAME} PUBLIC -fsanitize=address)
+target_compile_options(${PROJECT_NAME} PUBLIC 
+	#-fsanitize=address
+)
+target_link_options(${PROJECT_NAME} PUBLIC 
+	#-fsanitize=address
+)
 
 set_target_properties(${PROJECT_NAME} PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ../

@@ -307,7 +307,7 @@ NRI::MemoryRequirements &NRI::MemoryRequirements::setTypeRequest(MemoryTypeReque
 }
 
 std::unique_ptr<NRIImage2D> VulkanNRI::createImage2D(uint32_t width, uint32_t height, NRI::Format format,
-													 NRI::ImageUsage usage) const {
+													 NRI::ImageUsage usage) {
 	assert(format != NRI::Format::FORMAT_UNDEFINED);
 	assert(format < NRI::Format::_FORMAT_NUM);
 	assert(width > 0 && height > 0);
@@ -325,7 +325,7 @@ std::unique_ptr<NRIImage2D> VulkanNRI::createImage2D(uint32_t width, uint32_t he
 											  vk::raii::ImageView(nullptr), width, height);
 }
 
-std::unique_ptr<NRIBuffer> VulkanNRI::createBuffer(std::size_t size, NRI::BufferUsage usage) const {
+std::unique_ptr<NRIBuffer> VulkanNRI::createBuffer(std::size_t size, NRI::BufferUsage usage) {
 	vk::BufferUsageFlags bufferUsageFlags;
 	if (usage & NRI::BufferUsage::BUFFER_USAGE_VERTEX) bufferUsageFlags |= vk::BufferUsageFlagBits::eVertexBuffer;
 	if (usage & NRI::BufferUsage::BUFFER_USAGE_INDEX) bufferUsageFlags |= vk::BufferUsageFlagBits::eIndexBuffer;
@@ -397,7 +397,7 @@ void VulkanNRIImage2D::transitionLayout(NRICommandBuffer &commandBuffer, vk::Ima
 	vkBuf.commandBuffer.pipelineBarrier(srcStage, dstStage, vk::DependencyFlagBits::eByRegion, {}, {}, {barrier});
 }
 
-std::unique_ptr<NRICommandPool> VulkanNRI::createCommandPool() const {
+std::unique_ptr<NRICommandPool> VulkanNRI::createCommandPool() {
 	vk::CommandPoolCreateInfo poolCI(vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
 									 queueFamilyIndices.graphicsFamily.value());
 
@@ -406,7 +406,7 @@ std::unique_ptr<NRICommandPool> VulkanNRI::createCommandPool() const {
 	return std::make_unique<VulkanNRICommandPool>(std::move(pool));
 }
 
-std::unique_ptr<NRICommandQueue> VulkanNRI::createCommandQueue() const {
+std::unique_ptr<NRICommandQueue> VulkanNRI::createCommandQueue() {
 	vk::CommandPoolCreateInfo poolCI(vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
 									 queueFamilyIndices.graphicsFamily.value());
 
@@ -417,7 +417,7 @@ std::unique_ptr<NRICommandQueue> VulkanNRI::createCommandQueue() const {
 	return std::make_unique<VulkanNRICommandQueue>(std::move(queue));
 };
 
-VulkanNRIQWindow::VulkanNRIQWindow(const VulkanNRI &nri, std::unique_ptr<Renderer> &&renderer)
+VulkanNRIQWindow::VulkanNRIQWindow(VulkanNRI &nri, std::unique_ptr<Renderer> &&renderer)
 	: NRIQWindow(nri, std::move(renderer)),
 	  surface(nullptr),
 	  swapChain(nullptr),
@@ -558,7 +558,7 @@ VkSurfaceKHR createSurface(QApplication &app, VulkanNRIQWindow &window, const Vu
 }
 #endif
 
-NRIQWindow *VulkanNRI::createQWidgetSurface(QApplication &app, std::unique_ptr<Renderer> &&renderer) const {
+NRIQWindow *VulkanNRI::createQWidgetSurface(QApplication &app, std::unique_ptr<Renderer> &&renderer) {
 	auto *window = new VulkanNRIQWindow(*this, std::move(renderer));
 
 	vk::SurfaceKHR surface = createSurface(app, *window, this);
@@ -578,7 +578,7 @@ NRIQWindow *VulkanNRI::createQWidgetSurface(QApplication &app, std::unique_ptr<R
 	return window;
 }
 
-std::unique_ptr<NRIAllocation> VulkanNRI::allocateMemory(NRI::MemoryRequirements memoryRequirements) const {
+std::unique_ptr<NRIAllocation> VulkanNRI::allocateMemory(NRI::MemoryRequirements memoryRequirements) {
 	vk::MemoryPropertyFlags properties;
 	if (memoryRequirements.typeRequest & NRI::MemoryTypeRequest::MEMORY_TYPE_UPLOAD)
 		properties |= vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent;
@@ -606,7 +606,7 @@ std::unique_ptr<NRIAllocation> VulkanNRI::allocateMemory(NRI::MemoryRequirements
 	return std::make_unique<VulkanNRIAllocation>(std::move(memory), device);
 }
 
-std::unique_ptr<NRICommandBuffer> VulkanNRI::createCommandBuffer(const NRICommandPool &pool) const {
+std::unique_ptr<NRICommandBuffer> VulkanNRI::createCommandBuffer(const NRICommandPool &pool) {
 	vk::CommandBufferAllocateInfo allocInfo(static_cast<const VulkanNRICommandPool &>(pool).commandPool,
 											vk::CommandBufferLevel::ePrimary, 1);
 	vk::raii::CommandBuffers	  buffers(device, allocInfo);

@@ -147,7 +147,7 @@ class VulkanNRIQWindow : public NRIQWindow {
 
    protected:
    public:
-	VulkanNRIQWindow(const VulkanNRI &nri, std::unique_ptr<Renderer> &&renderer);
+	VulkanNRIQWindow(VulkanNRI &nri, std::unique_ptr<Renderer> &&renderer);
 
 	void createSwapChain(uint32_t &width, uint32_t &height);
 	void drawFrame() override;
@@ -172,14 +172,14 @@ class VulkanNRI : public NRI {
    public:
 	VulkanNRI();
 
-	std::unique_ptr<NRIBuffer>		  createBuffer(std::size_t size, BufferUsage usage) const override;
+	std::unique_ptr<NRIBuffer>		  createBuffer(std::size_t size, BufferUsage usage) override;
 	std::unique_ptr<NRIImage2D>		  createImage2D(uint32_t width, uint32_t height, NRI::Format fmt,
-													NRI::ImageUsage usage) const override;
-	std::unique_ptr<NRIAllocation>	  allocateMemory(MemoryRequirements memoryRequirements) const override;
-	std::unique_ptr<NRICommandQueue>  createCommandQueue() const override;
-	std::unique_ptr<NRICommandBuffer> createCommandBuffer(const NRICommandPool &commandPool) const override;
-	std::unique_ptr<NRICommandPool>	  createCommandPool() const override;
-	NRIQWindow *createQWidgetSurface(QApplication &app, std::unique_ptr<Renderer> &&renderer) const override;
+													NRI::ImageUsage usage) override;
+	std::unique_ptr<NRIAllocation>	  allocateMemory(MemoryRequirements memoryRequirements) override;
+	std::unique_ptr<NRICommandQueue>  createCommandQueue() override;
+	std::unique_ptr<NRICommandBuffer> createCommandBuffer(const NRICommandPool &commandPool) override;
+	std::unique_ptr<NRICommandPool>	  createCommandPool() override;
+	NRIQWindow *createQWidgetSurface(QApplication &app, std::unique_ptr<Renderer> &&renderer) override;
 
 	struct QueueFamilyIndices {
 		std::optional<uint32_t> graphicsFamily;
