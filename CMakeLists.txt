@@ -10,13 +10,15 @@ find_package (Qt6 REQUIRED COMPONENTS Core Gui Widgets)
 
 file(GLOB SOURCE_FILES native/*.cpp beamcast/*.cpp)
 
+add_subdirectory( lib/glm )
+
 add_executable(${PROJECT_NAME} main.cpp ${SOURCE_FILES})
 
 add_definitions(${Qt6Core_DEFINITIONS})
 target_link_libraries (${PROJECT_NAME} Vulkan::Vulkan)
 target_link_libraries(${PROJECT_NAME} Qt6::Core Qt6::Gui Qt6::Widgets)
 target_include_directories(${PROJECT_NAME} PRIVATE ${Qt6Gui_PRIVATE_INCLUDE_DIRS})
-target_include_directories(${PROJECT_NAME} PRIVATE "C:/msys64/mingw64/include/glm")
+target_include_directories(${PROJECT_NAME} PRIVATE lib/glm)
 target_compile_options(${PROJECT_NAME} PUBLIC 
 	#-fsanitize=address
 )

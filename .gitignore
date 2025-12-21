@@ -5,3 +5,4 @@ build/
 .cache/
 .vs/
 build-win/
+!lib/*

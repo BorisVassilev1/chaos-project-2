@@ -2,11 +2,7 @@
 
 #include <cstddef>
 #include <memory>
-#if defined(__linux__)
-	#include <glm/glm.hpp>
-#else
-	#include <glm.hpp>
-#endif
+#include <glm/glm.hpp>
 #include <QtWidgets>
 #include <iostream>
 
