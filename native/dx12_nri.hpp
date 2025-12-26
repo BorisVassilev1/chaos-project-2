@@ -174,7 +174,7 @@ class DX12NRI : public NRI {
 	auto  getDevice() const { return device.Get(); }
 	auto &getFactory() const { return factory; }
 	const auto &getDefaultCommandPool() const { return commandAllocator; }
-	auto &getDefaultCommandPool() { return commandAllocator; }
+	auto &getDefaultCommandPool() override { return commandAllocator; }
 	const auto &getDescriptorAllocator() const { return descriptorAllocator; }
 	auto &getDescriptorAllocator() { return descriptorAllocator; }
 

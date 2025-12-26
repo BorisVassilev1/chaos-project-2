@@ -177,6 +177,23 @@ class NRI {
 		IMAGE_USAGE_INPUT_ATTACHMENT		 = 1 << 7
 	};
 
+	enum ShaderType {
+		SHADER_TYPE_VERTEX					= 0,
+		SHADER_TYPE_FRAGMENT				= 1,
+		SHADER_TYPE_COMPUTE					= 2,
+		SHADER_TYPE_GEOMETRY				= 3,
+		SHADER_TYPE_TESSELLATION_CONTROL	= 4,
+		SHADER_TYPE_TESSELLATION_EVALUATION = 5,
+		SHADER_TYPE_RAYGEN					= 6,
+		SHADER_TYPE_ANY_HIT					= 7,
+		SHADER_TYPE_CLOSEST_HIT				= 8,
+		SHADER_TYPE_MISS					= 9,
+		SHADER_TYPE_INTERSECTION			= 10,
+		SHADER_TYPE_MESH					= 11,
+		SHADER_TYPE_TASK					= 12,
+		_SHADER_TYPE_NUM
+	};
+
 	struct MemoryRequirements {
 		std::size_t		  size;
 		std::size_t		  alignment = 0;
@@ -188,13 +205,14 @@ class NRI {
 		MemoryRequirements &setTypeRequest(MemoryTypeRequest tr);
 	};
 
-	virtual std::unique_ptr<NRIBuffer>		  createBuffer(std::size_t size, BufferUsage usage) = 0;
+	virtual std::unique_ptr<NRIBuffer>		  createBuffer(std::size_t size, BufferUsage usage)		 = 0;
 	virtual std::unique_ptr<NRIImage2D>		  createImage2D(uint32_t width, uint32_t height, Format fmt,
-															ImageUsage usage) = 0;
-	virtual std::unique_ptr<NRIAllocation>	  allocateMemory(MemoryRequirements memoryRequirements) = 0;
-	virtual std::unique_ptr<NRICommandQueue>  createCommandQueue() = 0;
+															ImageUsage usage)						 = 0;
+	virtual std::unique_ptr<NRIAllocation>	  allocateMemory(MemoryRequirements memoryRequirements)	 = 0;
+	virtual std::unique_ptr<NRICommandQueue>  createCommandQueue()									 = 0;
 	virtual std::unique_ptr<NRICommandBuffer> createCommandBuffer(const NRICommandPool &commandPool) = 0;
-	virtual std::unique_ptr<NRICommandPool>	  createCommandPool() = 0;
+	virtual std::unique_ptr<NRICommandPool>	  createCommandPool()									 = 0;
+	virtual NRICommandPool					 &getDefaultCommandPool()								 = 0;
 
 	virtual NRIQWindow *createQWidgetSurface(QApplication &app, std::unique_ptr<Renderer> &&renderer) = 0;
 
@@ -220,6 +238,11 @@ class NRIBuffer {
 
 	virtual NRI::MemoryRequirements getMemoryRequirements()									  = 0;
 	virtual void					bindMemory(NRIAllocation &allocation, std::size_t offset) = 0;
+	virtual void				   *map(std::size_t offset, std::size_t size)				  = 0;
+	virtual void					unmap()													  = 0;
+
+	virtual void copyFrom(NRICommandBuffer &commandBuffer, NRIBuffer &srcBuffer, std::size_t srcOffset,
+						  std::size_t dstOffset, std::size_t size) = 0;
 };
 
 class NRIImage2D {
@@ -231,6 +254,9 @@ class NRIImage2D {
 
 	virtual void clear(NRICommandBuffer &commandBuffer, glm::vec4 color) = 0;
 	virtual void prepareForPresent(NRICommandBuffer &commandBuffer)		 = 0;
+
+	virtual uint32_t getWidth() const  = 0;
+	virtual uint32_t getHeight() const = 0;
 };
 
 class NRICommandPool {
@@ -252,10 +278,30 @@ class NRICommandBuffer {
 
 	virtual void begin() = 0;
 	virtual void end()	 = 0;
+
+	virtual void beginRendering(NRIImage2D &renderTarget) = 0;
+	virtual void endRendering()							  = 0;
+};
+
+/// NRIProgram - represents a GPU program (shader)
+/// should contain shader modules, pipeline state and layout
+class NRIProgram {
+   public:
+	struct ShaderInfo {
+		std::string		sourceFile;
+		std::string		entryPoint;
+		NRI::ShaderType shaderType;
+	};
+	virtual ~NRIProgram() {}
 };
 
 class Renderer {
+   protected:
+	NRI &nri;
+
    public:
+	Renderer(NRI &nri) : nri(nri) {}
+	virtual void initialize(NRIQWindow &window)								= 0;
 	virtual void render(NRIImage2D &currentImage, NRICommandBuffer &cmdBuf) = 0;
 	virtual ~Renderer() {}
 };
@@ -267,10 +313,10 @@ class NRIQWindow : public QWindow {
 	using frameCallback = std::function<void()>;
 	std::vector<frameCallback> frameCallbacks;
 	QTimer					   timer;
-	const NRI				  &nri;
+	NRI						  &nri;
 
    public:
-	NRIQWindow(const NRI &nri, std::unique_ptr<Renderer> &&rendererPtr) : renderer(std::move(rendererPtr)), nri(nri) {
+	NRIQWindow(NRI &nri, std::unique_ptr<Renderer> &&rendererPtr) : renderer(std::move(rendererPtr)), nri(nri) {
 		connect(&timer, &QTimer::timeout, [this]() {
 			drawFrame();
 			for (const auto &cb : frameCallbacks)
@@ -288,4 +334,7 @@ class NRIQWindow : public QWindow {
 	}
 
 	virtual void drawFrame() = 0;
+
+	auto &getRenderer() { return renderer; }
+	virtual NRICommandQueue &getMainQueue() = 0;
 };

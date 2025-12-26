@@ -5,7 +5,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(QT6_DIR "C:/Qt/6.10.1/msvc2022_64/lib/cmake")
 set(CMAKE_PREFIX_PATH ${CMAKE_PREFIX_PATH} ${QT6_DIR})
 
-find_package (Vulkan REQUIRED)
+find_package (Vulkan REQUIRED dxc)
 find_package (Qt6 REQUIRED COMPONENTS Core Gui Widgets)
 
 file(GLOB SOURCE_FILES native/*.cpp beamcast/*.cpp)
@@ -15,7 +15,7 @@ add_subdirectory( lib/glm )
 add_executable(${PROJECT_NAME} main.cpp ${SOURCE_FILES})
 
 add_definitions(${Qt6Core_DEFINITIONS})
-target_link_libraries (${PROJECT_NAME} Vulkan::Vulkan)
+target_link_libraries (${PROJECT_NAME} Vulkan::Vulkan Vulkan::dxc_lib)
 target_link_libraries(${PROJECT_NAME} Qt6::Core Qt6::Gui Qt6::Widgets)
 target_include_directories(${PROJECT_NAME} PRIVATE ${Qt6Gui_PRIVATE_INCLUDE_DIRS})
 target_include_directories(${PROJECT_NAME} PRIVATE lib/glm)

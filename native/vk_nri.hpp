@@ -39,14 +39,23 @@ class VulkanNRIAllocation : public NRIAllocation {
 };
 
 class VulkanNRIBuffer : public NRIBuffer {
-	vk::raii::Buffer buffer;
-	vk::Device		 device;
+	vk::raii::Buffer	 buffer;
+	vk::Device			 device;
+	VulkanNRIAllocation *allocation;
 
+	std::size_t offset = 0;
+	std::size_t size   = 0;
    public:
-	VulkanNRIBuffer(vk::raii::Buffer &&buf, vk::Device dev) : buffer(std::move(buf)), device(dev) {}
+	VulkanNRIBuffer(vk::raii::Buffer &&buf, vk::Device dev, std::size_t size)
+		: buffer(std::move(buf)), device(dev), allocation(nullptr), size(size) {}
 
 	NRI::MemoryRequirements getMemoryRequirements() override;
 	void					bindMemory(NRIAllocation &allocation, std::size_t offset) override;
+	void				   *map(std::size_t offset, std::size_t size) override;
+	void					unmap() override;
+
+	void copyFrom(NRICommandBuffer &commandBuffer, NRIBuffer &srcBuffer, std::size_t srcOffset, std::size_t dstOffset,
+				  std::size_t size) override;
 };
 
 class VulkanNRIImage2D : public NRIImage2D {
@@ -88,6 +97,12 @@ class VulkanNRIImage2D : public NRIImage2D {
 	void clear(NRICommandBuffer &commandBuffer, glm::vec4 color) override;
 
 	void prepareForPresent(NRICommandBuffer &commandBuffer) override;
+
+	auto	   &getImageView() { return imageView; }
+	const auto &getImageView() const { return imageView; }
+
+	uint32_t getWidth() const override { return width; }
+	uint32_t getHeight() const override { return height; }
 };
 
 class VulkanNRICommandPool : public NRICommandPool {
@@ -127,7 +142,18 @@ class VulkanNRICommandBuffer : public NRICommandBuffer {
 		}
 	}
 
+	void beginRendering(NRIImage2D &renderTarget) override;
+	void endRendering() override;
+
 	VulkanNRICommandBuffer(vk::raii::CommandBuffer &&cmdBuf) : commandBuffer(std::move(cmdBuf)), isRecording(false) {}
+};
+
+class VulkanNRIProgram {
+   public:
+	vk::raii::Pipeline		 pipeline;
+	vk::raii::PipelineLayout pipelineLayout;
+
+	VulkanNRIProgram(std::vector<NRIProgram::ShaderInfo> &&stagesInfo, const vk::raii::Device &device);
 };
 
 class VulkanNRI;
@@ -135,7 +161,7 @@ class VulkanNRI;
 class VulkanNRIQWindow : public NRIQWindow {
 	vk::raii::SurfaceKHR   surface;
 	vk::raii::SwapchainKHR swapChain;
-	vk::raii::Queue		   presentQueue;
+	VulkanNRICommandQueue  presentQueue;
 
 	vk::raii::Semaphore imageAvailableSemaphore;
 	vk::raii::Semaphore renderFinishedSemaphore;
@@ -144,6 +170,8 @@ class VulkanNRIQWindow : public NRIQWindow {
 	std::vector<VulkanNRIImage2D> swapChainImages;
 
 	std::unique_ptr<VulkanNRICommandBuffer> commandBuffer;
+
+	uint32_t width = 0, height = 0;
 
    protected:
    public:
@@ -154,8 +182,10 @@ class VulkanNRIQWindow : public NRIQWindow {
 
 	vk::raii::SurfaceKHR		  &getSurface() { return surface; }
 	vk::raii::SwapchainKHR		  &getSwapChain() { return swapChain; }
-	vk::raii::Queue				  &getPresentQueue() { return presentQueue; }
+	vk::raii::Queue				  &getPresentQueue() { return presentQueue.queue; }
 	std::vector<VulkanNRIImage2D> &getSwapChainImages() { return swapChainImages; }
+
+	NRICommandQueue &getMainQueue() override { return presentQueue; }
 };
 
 class VulkanNRI : public NRI {
@@ -188,7 +218,7 @@ class VulkanNRI : public NRI {
 	const vk::raii::Instance	   &getInstance() const { return instance; }
 	const vk::raii::Device		   &getDevice() const { return device; }
 	const vk::raii::PhysicalDevice &getPhysicalDevice() const { return physicalDevice; }
-	const VulkanNRICommandPool	   &getDefaultCommandPool() const { return defaultCommandPool; }
+	NRICommandPool				   &getDefaultCommandPool() override { return defaultCommandPool; }
 
 	void synchronize() const override { device.waitIdle(); }
 

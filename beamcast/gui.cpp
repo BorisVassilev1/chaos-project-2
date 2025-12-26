@@ -13,7 +13,7 @@ NRI *BeamcastApplication::chooseNRI() {
 }
 
 BeamcastApplication::BeamcastApplication(int &argc, char **argv) : QApplication(argc, argv), nri(chooseNRI()) {
-	window	 = nri->createQWidgetSurface(*this, std::make_unique<BeamcastRenderer>());
+	window	 = nri->createQWidgetSurface(*this, std::make_unique<BeamcastRenderer>(*nri));
 	viewport = QWidget::createWindowContainer(window);
 	viewport->setMinimumSize(640, 480);
 	viewport->setFocusPolicy(Qt::StrongFocus);

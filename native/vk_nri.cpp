@@ -8,6 +8,8 @@
 #include <vulkan/vulkan_raii.hpp>
 #include <vulkan/vulkan_core.h>
 
+#include <dxc/dxcapi.h>
+
 static const std::vector<const char *> validationLayers = {
 	"VK_LAYER_KHRONOS_validation"
 	//"VK_LAYER_NV_optimus"
@@ -179,6 +181,8 @@ const char *extensions[] = {
 #elif defined(_WIN32)
 	"VK_KHR_win32_surface",
 #endif
+	"VK_EXT_debug_utils",
+	//"VK_KHR_dynamic_rendering"
 };
 
 bool checkExtensionSupport() {
@@ -221,7 +225,7 @@ static bool isDeviceSuitable(const vk::raii::PhysicalDevice &device) {
 }
 
 void VulkanNRI::createInstance() {
-	vk::ApplicationInfo appInfo("VulkanNRIApp", 1, "NoEngine", 1, vk::ApiVersion14);
+	vk::ApplicationInfo appInfo("VulkanNRIApp", 1, "NoEngine", 1, vk::ApiVersion13);
 
 	vk::InstanceCreateInfo createInfo({}, &appInfo);
 
@@ -259,7 +263,8 @@ void VulkanNRI::pickPhysicalDevice() {
 	if (physicalDevice == nullptr) { throw std::runtime_error("Failed to find a suitable GPU!"); }
 }
 
-static std::vector<const char *> deviceExtensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+static std::vector<const char *> deviceExtensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+													 VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME};
 
 void VulkanNRI::createLogicalDevice() {
 	QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
@@ -267,12 +272,13 @@ void VulkanNRI::createLogicalDevice() {
 	float					  prio = 1.0f;
 	vk::DeviceQueueCreateInfo queueCreateInfo({}, indices.graphicsFamily.value(), 1, &prio);
 
-	vk::PhysicalDeviceFeatures deviceFeatures{};
+	vk::PhysicalDeviceFeatures				   deviceFeatures{};
+	vk::PhysicalDeviceDynamicRenderingFeatures dynamicRenderingFeature(VK_TRUE);
 
 	vk::DeviceCreateInfo createInfo(
 		{}, 1, &queueCreateInfo, enableValidationLayers ? static_cast<uint32_t>(validationLayers.size()) : 0,
 		enableValidationLayers ? validationLayers.data() : nullptr, static_cast<uint32_t>(deviceExtensions.size()),
-		deviceExtensions.data(), &deviceFeatures);
+		deviceExtensions.data(), &deviceFeatures, &dynamicRenderingFeature);
 
 	device = vk::raii::Device(physicalDevice, createInfo);
 }
@@ -297,8 +303,48 @@ NRI::MemoryRequirements VulkanNRIBuffer::getMemoryRequirements() {
 
 void VulkanNRIBuffer::bindMemory(NRIAllocation &allocation, std::size_t offset) {
 	VulkanNRIAllocation &vulkanAllocation = static_cast<VulkanNRIAllocation &>(allocation);
+	this->offset						  = offset;
 
 	buffer.bindMemory(vulkanAllocation.getMemory(), offset);
+	this->allocation = &vulkanAllocation;
+}
+void *VulkanNRIBuffer::map(std::size_t offset, std::size_t size) {
+	assert(allocation != nullptr);
+	void *data;
+	vkMapMemory(allocation->getDevice(), allocation->getMemory(), offset, size, 0, &data);
+	return data;
+}
+
+void VulkanNRIBuffer::unmap() {
+	assert(allocation != nullptr);
+
+	//vk::MappedMemoryRange memoryRange(allocation->getMemory(), offset, VK_WHOLE_SIZE);
+	//auto				  res = allocation->getDevice().flushMappedMemoryRanges(1, &memoryRange);
+	//assert(res == vk::Result::eSuccess);
+
+	vkUnmapMemory(allocation->getDevice(), allocation->getMemory());
+}
+
+void VulkanNRIBuffer::copyFrom(NRICommandBuffer &commandBuffer, NRIBuffer &srcBuffer, std::size_t srcOffset,
+							   std::size_t dstOffset, std::size_t size) {
+	auto &vkCmdBuf = static_cast<VulkanNRICommandBuffer &>(commandBuffer);
+	auto &vkSrcBuf = static_cast<VulkanNRIBuffer &>(srcBuffer);
+
+	if (!vkCmdBuf.isRecording) vkCmdBuf.begin();
+
+	//vk::BufferMemoryBarrier bufferBarrier(vk::AccessFlagBits::eHostWrite,
+	//									  vk::AccessFlagBits::eTransferRead, VK_QUEUE_FAMILY_IGNORED,
+	//									  VK_QUEUE_FAMILY_IGNORED, vkSrcBuf.buffer, srcOffset, size);
+	//vkCmdBuf.commandBuffer.pipelineBarrier(vk::PipelineStageFlagBits::eHost,
+	//									   vk::PipelineStageFlagBits::eTransfer, {}, {}, {bufferBarrier}, {});
+
+	vkCmdBuf.commandBuffer.copyBuffer(vkSrcBuf.buffer, this->buffer, vk::BufferCopy(srcOffset, dstOffset, size));
+
+	vk::BufferMemoryBarrier bufferBarrier2(
+		vk::AccessFlagBits::eTransferWrite, vk::AccessFlagBits::eMemoryRead,
+		VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, this->buffer, dstOffset, size);
+	vkCmdBuf.commandBuffer.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
+										   vk::PipelineStageFlagBits::eTopOfPipe, {}, {}, {bufferBarrier2}, {});
 }
 
 NRI::MemoryRequirements &NRI::MemoryRequirements::setTypeRequest(MemoryTypeRequest tr) {
@@ -338,7 +384,7 @@ std::unique_ptr<NRIBuffer> VulkanNRI::createBuffer(std::size_t size, NRI::Buffer
 
 	vk::raii::Buffer buffer = vk::raii::Buffer(device, bufferInfo);
 
-	return std::make_unique<VulkanNRIBuffer>(std::move(buffer), device);
+	return std::make_unique<VulkanNRIBuffer>(std::move(buffer), device, size);
 }
 
 NRI::MemoryRequirements VulkanNRIImage2D::getMemoryRequirements() {
@@ -433,6 +479,8 @@ VulkanNRIQWindow::VulkanNRIQWindow(VulkanNRI &nri, std::unique_ptr<Renderer> &&r
 }
 
 void VulkanNRIQWindow::createSwapChain(uint32_t &width, uint32_t &height) {
+	this->width								= width;
+	this->height							= height;
 	auto					  &nri			= static_cast<const VulkanNRI &>(this->nri);
 	vk::SurfaceCapabilitiesKHR capabilities = nri.getPhysicalDevice().getSurfaceCapabilitiesKHR(*surface);
 
@@ -484,18 +532,23 @@ void VulkanNRIQWindow::drawFrame() {
 	assert(result == vk::Result::eSuccess);
 	auto imageIndex = swapChain.acquireNextImage(UINT64_MAX, *imageAvailableSemaphore, nullptr);
 
+	swapChainImages[imageIndex.value].transitionLayout(
+		*commandBuffer, vk::ImageLayout::eColorAttachmentOptimal, vk::AccessFlagBits::eMemoryRead,
+		vk::AccessFlagBits::eColorAttachmentWrite, vk::PipelineStageFlagBits::eBottomOfPipe,
+		vk::PipelineStageFlagBits::eColorAttachmentOutput);
+
 	renderer->render(swapChainImages[imageIndex.value], *commandBuffer);
 
 	vk::PipelineStageFlags stages = {vk::PipelineStageFlagBits::eColorAttachmentOutput};
-	presentQueue.submit(vk::SubmitInfo(1, &(*imageAvailableSemaphore), &stages, 1, &*commandBuffer->commandBuffer, 1,
-									   &(*renderFinishedSemaphore)),
-						*inFlightFence);
+	presentQueue.queue.submit(vk::SubmitInfo(1, &(*imageAvailableSemaphore), &stages, 1, &*commandBuffer->commandBuffer,
+											 1, &(*renderFinishedSemaphore)),
+							  *inFlightFence);
 
 	vk::PresentInfoKHR presentInfo =
 		vk::PresentInfoKHR(1, &*renderFinishedSemaphore, 1, &*swapChain, &imageIndex.value);
 
 	// result = presentQueue.presentKHR(presentInfo);
-	vk::Result res = (vk::Result)vkQueuePresentKHR(*presentQueue, &*presentInfo);
+	vk::Result res = (vk::Result)vkQueuePresentKHR(*presentQueue.queue, &*presentInfo);
 	switch (res) {
 		case vk::Result::eSuccess: break;
 		case vk::Result::eErrorOutOfDateKHR:
@@ -508,7 +561,95 @@ void VulkanNRIQWindow::drawFrame() {
 		default: assert(res == vk::Result::eSuccess);
 	}
 
-	presentQueue.waitIdle();
+	presentQueue.queue.waitIdle();
+}
+
+void VulkanNRICommandBuffer::beginRendering(NRIImage2D &renderTarget) {
+	auto &rt = static_cast<VulkanNRIImage2D &>(renderTarget);
+
+	vk::RenderingInfo renderingInfo{};
+	renderingInfo.sType		 = vk::StructureType::eRenderingInfo;
+	renderingInfo.renderArea = vk::Rect2D({0, 0}, {rt.getWidth(), rt.getHeight()});
+	vk::RenderingAttachmentInfo colorAttachment{};
+	colorAttachment.sType		= vk::StructureType::eRenderingAttachmentInfo;
+	colorAttachment.imageView	= rt.getImageView();
+	colorAttachment.imageLayout = vk::ImageLayout::eColorAttachmentOptimal;
+	colorAttachment.loadOp		= vk::AttachmentLoadOp::eClear;
+	colorAttachment.storeOp		= vk::AttachmentStoreOp::eStore;
+	vk::ClearValue clearValue;
+	clearValue.color				   = vk::ClearColorValue(std::array<float, 4>({0.0f, 0.0f, 0.0f, 1.0f}));
+	colorAttachment.clearValue		   = clearValue;
+	renderingInfo.colorAttachmentCount = 1;
+	renderingInfo.pColorAttachments	   = &colorAttachment;
+	renderingInfo.layerCount		   = 1;
+
+	commandBuffer.beginRendering(renderingInfo);
+}
+
+void VulkanNRICommandBuffer::endRendering() { commandBuffer.endRendering(); }
+
+
+VulkanNRIProgram::VulkanNRIProgram(std::vector<NRIProgram::ShaderInfo> &&stagesInfo, const vk::raii::Device &device) : 
+	pipeline(nullptr), pipelineLayout(nullptr)
+{
+	std::vector<vk::PipelineShaderStageCreateInfo> shaderStages;
+	std::vector<vk::raii::ShaderModule>		 shaderModules;
+
+	IDxcCompiler3 *compiler;
+	DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&compiler));
+
+    IDxcUtils* utils;
+    DxcCreateInstance(CLSID_DxcUtils, IID_PPV_ARGS(&utils));
+
+	for (const auto &stageInfo : stagesInfo) {
+		vk::ShaderStageFlagBits stage;
+		switch (stageInfo.shaderType) {
+			case NRI::ShaderType::SHADER_TYPE_VERTEX: stage = vk::ShaderStageFlagBits::eVertex; break;
+			case NRI::ShaderType::SHADER_TYPE_FRAGMENT: stage = vk::ShaderStageFlagBits::eFragment; break;
+			default: throw std::runtime_error("Unsupported shader stage!");
+		}
+
+		std::vector<uint8_t>		sourceCode;
+		IDxcBlobEncoding		 *sourceBlob;
+		std::wstring wSourceFile = std::wstring(stageInfo.sourceFile.begin(), stageInfo.sourceFile.end());
+		HRESULT					 hr = utils->LoadFile(wSourceFile.c_str(), nullptr, &sourceBlob);
+		if (FAILED(hr)) {
+			throw std::runtime_error("Failed to load shader source file: " + std::string(stageInfo.sourceFile));
+		}
+
+		std::vector<LPCWSTR> arguments;
+		arguments.push_back(L"-E");
+		std::wstring entryPoint = std::wstring(stageInfo.entryPoint.begin(), stageInfo.entryPoint.end());
+		arguments.push_back(entryPoint.c_str());
+		arguments.push_back(L"-T");
+		arguments.push_back(L"vs_6_0");
+		
+		DxcBuffer buffer{};
+		buffer.Ptr = sourceBlob->GetBufferPointer();
+    	buffer.Size = sourceBlob->GetBufferSize();
+    	buffer.Encoding = 0;
+
+		IDxcResult *result;
+		hr = compiler->Compile(&buffer, arguments.data(), static_cast<UINT32>(arguments.size()), nullptr, IID_PPV_ARGS(&result));
+		if (FAILED(hr)) {
+			throw std::runtime_error("Failed to compile shader: " + std::string(stageInfo.sourceFile));
+		}
+		IDxcBlob* spirvBlob;
+		result->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&spirvBlob), nullptr);
+
+		vk::ShaderModuleCreateInfo shaderModuleInfo({}, spirvBlob->GetBufferSize(),
+												   reinterpret_cast<const uint32_t *>(spirvBlob->GetBufferPointer()));
+		shaderModules.emplace_back(device, shaderModuleInfo);
+
+		vk::PipelineShaderStageCreateInfo shaderStageInfo(
+			{}, stage, *shaderModules.back(), stageInfo.entryPoint.c_str());
+		shaderStages.push_back(shaderStageInfo);
+	}
+
+	vk::PipelineLayoutCreateInfo pipelineLayoutInfo{};
+	pipelineLayout = vk::raii::PipelineLayout(device, pipelineLayoutInfo);
+
+
 }
 
 static VkSurfaceKHR createSurface(QApplication &app, VulkanNRIQWindow &window, const VulkanNRI *nri);
@@ -575,6 +716,7 @@ NRIQWindow *VulkanNRI::createQWidgetSurface(QApplication &app, std::unique_ptr<R
 	vk::raii::Queue presentQueue = vk::raii::Queue(device, queueFamilyIndices.graphicsFamily.value(), 0);
 	window->getPresentQueue()	 = std::move(presentQueue);
 
+	window->getRenderer()->initialize(*window);
 	return window;
 }
 
