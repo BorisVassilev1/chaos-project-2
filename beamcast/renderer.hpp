@@ -6,6 +6,7 @@ class BeamcastRenderer : public Renderer {
 	int							   frameCount = 0;
 	std::unique_ptr<NRIAllocation> vertexBufferMemory;
 	std::unique_ptr<NRIBuffer>	   vertexBuffer;
+	std::unique_ptr<NRIProgram>	   shader;
 
 	BeamcastRenderer(NRI &nri) : Renderer(nri) {}
 
@@ -37,6 +38,13 @@ class BeamcastRenderer : public Renderer {
 
 		window.getMainQueue().submit(*cmdBuffer);
 		window.getMainQueue().synchronize();
+
+
+		shader = nri.createProgram({
+			{"shaders/simple.hlsl", "VSMain", NRI::ShaderType::SHADER_TYPE_VERTEX},
+			{"shaders/simple.hlsl", "PSMain", NRI::ShaderType::SHADER_TYPE_FRAGMENT},
+		});
+
 	}
 
 	void render(NRIImage2D &currentImage, NRICommandBuffer &cmdBuf) override {
@@ -44,9 +52,14 @@ class BeamcastRenderer : public Renderer {
 
 		cmdBuf.begin();
 
+		shader->bind(cmdBuf);
 		cmdBuf.beginRendering(currentImage);
 		// currentImage.clear(cmdBuf, glm::vec4(0.0f, glm::sin(frameCount / 50.f) * 0.5f + 0.5f, 0.0f, 1.0f));
 		// currentImage.prepareForPresent(cmdBuf);
+
+		vertexBuffer->bindAsVertexBuffer(cmdBuf, 0, 0);
+		shader->draw(cmdBuf, 3, 1, 0, 0);
+		shader->unbind(cmdBuf);
 
 		cmdBuf.endRendering();
 

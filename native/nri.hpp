@@ -13,6 +13,7 @@ class NRICommandPool;
 class NRICommandQueue;
 class NRICommandBuffer;
 class NRIQWindow;
+class NRIProgram;
 class Renderer;
 
 /// NRI - Native Rendering Interface
@@ -214,6 +215,13 @@ class NRI {
 	virtual std::unique_ptr<NRICommandPool>	  createCommandPool()									 = 0;
 	virtual NRICommandPool					 &getDefaultCommandPool()								 = 0;
 
+	struct ShaderCreateInfo {
+		std::string		sourceFile;
+		std::string		entryPoint;
+		NRI::ShaderType shaderType;
+	};
+	virtual std::unique_ptr<NRIProgram> createProgram(std::vector<ShaderCreateInfo> &&shaderInfos) = 0;
+
 	virtual NRIQWindow *createQWidgetSurface(QApplication &app, std::unique_ptr<Renderer> &&renderer) = 0;
 
 	virtual void synchronize() const = 0;
@@ -243,6 +251,8 @@ class NRIBuffer {
 
 	virtual void copyFrom(NRICommandBuffer &commandBuffer, NRIBuffer &srcBuffer, std::size_t srcOffset,
 						  std::size_t dstOffset, std::size_t size) = 0;
+
+	virtual void bindAsVertexBuffer(NRICommandBuffer &commandBuffer, uint32_t binding, std::size_t offset) = 0;
 };
 
 class NRIImage2D {
@@ -287,12 +297,13 @@ class NRICommandBuffer {
 /// should contain shader modules, pipeline state and layout
 class NRIProgram {
    public:
-	struct ShaderInfo {
-		std::string		sourceFile;
-		std::string		entryPoint;
-		NRI::ShaderType shaderType;
-	};
 	virtual ~NRIProgram() {}
+
+	virtual void bind(NRICommandBuffer &commandBuffer) = 0;
+	virtual void unbind(NRICommandBuffer &commandBuffer) = 0;
+
+	virtual void draw(NRICommandBuffer &commandBuffer, uint32_t vertexCount, uint32_t instanceCount,
+					  uint32_t firstVertex, uint32_t firstInstance) = 0;
 };
 
 class Renderer {

@@ -56,6 +56,7 @@ class VulkanNRIBuffer : public NRIBuffer {
 
 	void copyFrom(NRICommandBuffer &commandBuffer, NRIBuffer &srcBuffer, std::size_t srcOffset, std::size_t dstOffset,
 				  std::size_t size) override;
+	void bindAsVertexBuffer(NRICommandBuffer &commandBuffer, uint32_t binding, std::size_t offset) override;
 };
 
 class VulkanNRIImage2D : public NRIImage2D {
@@ -148,12 +149,17 @@ class VulkanNRICommandBuffer : public NRICommandBuffer {
 	VulkanNRICommandBuffer(vk::raii::CommandBuffer &&cmdBuf) : commandBuffer(std::move(cmdBuf)), isRecording(false) {}
 };
 
-class VulkanNRIProgram {
+class VulkanNRIProgram : public NRIProgram {
    public:
 	vk::raii::Pipeline		 pipeline;
 	vk::raii::PipelineLayout pipelineLayout;
 
-	VulkanNRIProgram(std::vector<NRIProgram::ShaderInfo> &&stagesInfo, const vk::raii::Device &device);
+	VulkanNRIProgram(std::vector<NRI::ShaderCreateInfo> &&stagesInfo, const vk::raii::Device &device);
+
+	void bind(NRICommandBuffer &commandBuffer) override;
+	void unbind(NRICommandBuffer &commandBuffer) override;
+	void draw(NRICommandBuffer &commandBuffer, uint32_t vertexCount, uint32_t instanceCount,
+					  uint32_t firstVertex, uint32_t firstInstance) override;
 };
 
 class VulkanNRI;
@@ -209,6 +215,7 @@ class VulkanNRI : public NRI {
 	std::unique_ptr<NRICommandQueue>  createCommandQueue() override;
 	std::unique_ptr<NRICommandBuffer> createCommandBuffer(const NRICommandPool &commandPool) override;
 	std::unique_ptr<NRICommandPool>	  createCommandPool() override;
+	std::unique_ptr<NRIProgram>	  createProgram(std::vector<ShaderCreateInfo> &&shaderInfos) override;
 	NRIQWindow *createQWidgetSurface(QApplication &app, std::unique_ptr<Renderer> &&renderer) override;
 
 	struct QueueFamilyIndices {

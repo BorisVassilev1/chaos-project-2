@@ -6,6 +6,7 @@
 #include <ostream>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_raii.hpp>
+#include "vulkan/vulkan.hpp"
 #include <vulkan/vulkan_core.h>
 
 #include <dxc/dxcapi.h>
@@ -318,9 +319,9 @@ void *VulkanNRIBuffer::map(std::size_t offset, std::size_t size) {
 void VulkanNRIBuffer::unmap() {
 	assert(allocation != nullptr);
 
-	//vk::MappedMemoryRange memoryRange(allocation->getMemory(), offset, VK_WHOLE_SIZE);
-	//auto				  res = allocation->getDevice().flushMappedMemoryRanges(1, &memoryRange);
-	//assert(res == vk::Result::eSuccess);
+	// vk::MappedMemoryRange memoryRange(allocation->getMemory(), offset, VK_WHOLE_SIZE);
+	// auto				  res = allocation->getDevice().flushMappedMemoryRanges(1, &memoryRange);
+	// assert(res == vk::Result::eSuccess);
 
 	vkUnmapMemory(allocation->getDevice(), allocation->getMemory());
 }
@@ -332,19 +333,28 @@ void VulkanNRIBuffer::copyFrom(NRICommandBuffer &commandBuffer, NRIBuffer &srcBu
 
 	if (!vkCmdBuf.isRecording) vkCmdBuf.begin();
 
-	//vk::BufferMemoryBarrier bufferBarrier(vk::AccessFlagBits::eHostWrite,
+	// TODO: put the right barriers here
+	// vk::BufferMemoryBarrier bufferBarrier(vk::AccessFlagBits::eHostWrite,
 	//									  vk::AccessFlagBits::eTransferRead, VK_QUEUE_FAMILY_IGNORED,
 	//									  VK_QUEUE_FAMILY_IGNORED, vkSrcBuf.buffer, srcOffset, size);
-	//vkCmdBuf.commandBuffer.pipelineBarrier(vk::PipelineStageFlagBits::eHost,
+	// vkCmdBuf.commandBuffer.pipelineBarrier(vk::PipelineStageFlagBits::eHost,
 	//									   vk::PipelineStageFlagBits::eTransfer, {}, {}, {bufferBarrier}, {});
 
 	vkCmdBuf.commandBuffer.copyBuffer(vkSrcBuf.buffer, this->buffer, vk::BufferCopy(srcOffset, dstOffset, size));
 
-	vk::BufferMemoryBarrier bufferBarrier2(
-		vk::AccessFlagBits::eTransferWrite, vk::AccessFlagBits::eMemoryRead,
-		VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, this->buffer, dstOffset, size);
-	vkCmdBuf.commandBuffer.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
-										   vk::PipelineStageFlagBits::eTopOfPipe, {}, {}, {bufferBarrier2}, {});
+	vk::BufferMemoryBarrier bufferBarrier2(vk::AccessFlagBits::eTransferWrite, vk::AccessFlagBits::eMemoryRead,
+										   VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, this->buffer, dstOffset,
+										   size);
+	vkCmdBuf.commandBuffer.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eTopOfPipe,
+										   {}, {}, {bufferBarrier2}, {});
+}
+
+void VulkanNRIBuffer::bindAsVertexBuffer(NRICommandBuffer &commandBuffer, uint32_t binding, std::size_t offset) {
+	auto &vkCmdBuf = static_cast<VulkanNRICommandBuffer &>(commandBuffer);
+
+	vk::Buffer vkBuffer = this->buffer;
+
+	vkCmdBuf.commandBuffer.bindVertexBuffers(binding, vkBuffer, vk::DeviceSize(offset));
 }
 
 NRI::MemoryRequirements &NRI::MemoryRequirements::setTypeRequest(MemoryTypeRequest tr) {
@@ -452,6 +462,9 @@ std::unique_ptr<NRICommandPool> VulkanNRI::createCommandPool() {
 	return std::make_unique<VulkanNRICommandPool>(std::move(pool));
 }
 
+std::unique_ptr<NRIProgram> VulkanNRI::createProgram(std::vector<ShaderCreateInfo> &&shaderInfos) {
+	return std::make_unique<VulkanNRIProgram>(std::move(shaderInfos), device);
+}
 std::unique_ptr<NRICommandQueue> VulkanNRI::createCommandQueue() {
 	vk::CommandPoolCreateInfo poolCI(vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
 									 queueFamilyIndices.graphicsFamily.value());
@@ -584,22 +597,24 @@ void VulkanNRICommandBuffer::beginRendering(NRIImage2D &renderTarget) {
 	renderingInfo.layerCount		   = 1;
 
 	commandBuffer.beginRendering(renderingInfo);
+
+	commandBuffer.setViewport(
+		0, vk::Viewport(0.0f, 0.0f, static_cast<float>(rt.getWidth()), static_cast<float>(rt.getHeight()), 0.0f, 1.0f));
+	commandBuffer.setScissor(0, vk::Rect2D({0, 0}, {rt.getWidth(), rt.getHeight()}));
 }
 
 void VulkanNRICommandBuffer::endRendering() { commandBuffer.endRendering(); }
 
-
-VulkanNRIProgram::VulkanNRIProgram(std::vector<NRIProgram::ShaderInfo> &&stagesInfo, const vk::raii::Device &device) : 
-	pipeline(nullptr), pipelineLayout(nullptr)
-{
+VulkanNRIProgram::VulkanNRIProgram(std::vector<NRI::ShaderCreateInfo> &&stagesInfo, const vk::raii::Device &device)
+	: pipeline(nullptr), pipelineLayout(nullptr) {
 	std::vector<vk::PipelineShaderStageCreateInfo> shaderStages;
-	std::vector<vk::raii::ShaderModule>		 shaderModules;
+	std::vector<vk::raii::ShaderModule>			   shaderModules;
 
 	IDxcCompiler3 *compiler;
 	DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&compiler));
 
-    IDxcUtils* utils;
-    DxcCreateInstance(CLSID_DxcUtils, IID_PPV_ARGS(&utils));
+	IDxcUtils *utils;
+	DxcCreateInstance(CLSID_DxcUtils, IID_PPV_ARGS(&utils));
 
 	for (const auto &stageInfo : stagesInfo) {
 		vk::ShaderStageFlagBits stage;
@@ -609,10 +624,10 @@ VulkanNRIProgram::VulkanNRIProgram(std::vector<NRIProgram::ShaderInfo> &&stagesI
 			default: throw std::runtime_error("Unsupported shader stage!");
 		}
 
-		std::vector<uint8_t>		sourceCode;
-		IDxcBlobEncoding		 *sourceBlob;
-		std::wstring wSourceFile = std::wstring(stageInfo.sourceFile.begin(), stageInfo.sourceFile.end());
-		HRESULT					 hr = utils->LoadFile(wSourceFile.c_str(), nullptr, &sourceBlob);
+		std::vector<uint8_t> sourceCode;
+		IDxcBlobEncoding	*sourceBlob;
+		std::wstring		 wSourceFile = std::wstring(stageInfo.sourceFile.begin(), stageInfo.sourceFile.end());
+		HRESULT				 hr			 = utils->LoadFile(wSourceFile.c_str(), nullptr, &sourceBlob);
 		if (FAILED(hr)) {
 			throw std::runtime_error("Failed to load shader source file: " + std::string(stageInfo.sourceFile));
 		}
@@ -622,36 +637,116 @@ VulkanNRIProgram::VulkanNRIProgram(std::vector<NRIProgram::ShaderInfo> &&stagesI
 		std::wstring entryPoint = std::wstring(stageInfo.entryPoint.begin(), stageInfo.entryPoint.end());
 		arguments.push_back(entryPoint.c_str());
 		arguments.push_back(L"-T");
-		arguments.push_back(L"vs_6_0");
-		
+
+		switch (stageInfo.shaderType) {
+			case NRI::ShaderType::SHADER_TYPE_VERTEX: arguments.push_back(L"vs_6_0"); break;
+			case NRI::ShaderType::SHADER_TYPE_FRAGMENT: arguments.push_back(L"ps_6_0"); break;
+			default: throw std::runtime_error("Unsupported shader stage!");
+		}
+		arguments.push_back(L"-spirv");
+
 		DxcBuffer buffer{};
-		buffer.Ptr = sourceBlob->GetBufferPointer();
-    	buffer.Size = sourceBlob->GetBufferSize();
-    	buffer.Encoding = 0;
+		buffer.Ptr		= sourceBlob->GetBufferPointer();
+		buffer.Size		= sourceBlob->GetBufferSize();
+		buffer.Encoding = 0;
+
+		std::cout << "Compiling shader: " << stageInfo.sourceFile << std::endl;
 
 		IDxcResult *result;
-		hr = compiler->Compile(&buffer, arguments.data(), static_cast<UINT32>(arguments.size()), nullptr, IID_PPV_ARGS(&result));
-		if (FAILED(hr)) {
-			throw std::runtime_error("Failed to compile shader: " + std::string(stageInfo.sourceFile));
+		hr = compiler->Compile(&buffer, arguments.data(), static_cast<UINT32>(arguments.size()), nullptr,
+							   IID_PPV_ARGS(&result));
+		if (FAILED(hr)) { throw std::runtime_error("Failed to compile shader: " + std::string(stageInfo.sourceFile)); }
+
+		IDxcBlobEncoding *errorBuffer;
+		result->GetErrorBuffer(&errorBuffer);
+		if (errorBuffer != nullptr && errorBuffer->GetBufferSize() > 0) {
+			std::string errorMessage(reinterpret_cast<const char *>(errorBuffer->GetBufferPointer()),
+									 errorBuffer->GetBufferSize());
+			std::cerr << "Shader compilation warnings/errors: " << errorMessage << std::endl;
 		}
-		IDxcBlob* spirvBlob;
+
+		IDxcBlob *spirvBlob;
 		result->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&spirvBlob), nullptr);
 
 		vk::ShaderModuleCreateInfo shaderModuleInfo({}, spirvBlob->GetBufferSize(),
-												   reinterpret_cast<const uint32_t *>(spirvBlob->GetBufferPointer()));
+													reinterpret_cast<const uint32_t *>(spirvBlob->GetBufferPointer()));
 		shaderModules.emplace_back(device, shaderModuleInfo);
 
-		vk::PipelineShaderStageCreateInfo shaderStageInfo(
-			{}, stage, *shaderModules.back(), stageInfo.entryPoint.c_str());
+		vk::PipelineShaderStageCreateInfo shaderStageInfo({}, stage, *shaderModules.back(),
+														  stageInfo.entryPoint.c_str());
 		shaderStages.push_back(shaderStageInfo);
 	}
 
 	vk::PipelineLayoutCreateInfo pipelineLayoutInfo{};
 	pipelineLayout = vk::raii::PipelineLayout(device, pipelineLayoutInfo);
 
+	// vec3 position + vec3 color
+	vk::VertexInputBindingDescription bindingDescription(0, sizeof(float) * 6, vk::VertexInputRate::eVertex);
+	const std::array<vk::VertexInputAttributeDescription, 2> attributeDescriptions = {
+		vk::VertexInputAttributeDescription(0, 0, vk::Format::eR32G32B32Sfloat, 0),
+		vk::VertexInputAttributeDescription(1, 0, vk::Format::eR32G32B32Sfloat, sizeof(float) * 3),
+	};
 
+	vk::PipelineVertexInputStateCreateInfo vertexInputInfo(
+		{}, 1, &bindingDescription, static_cast<uint32_t>(attributeDescriptions.size()), attributeDescriptions.data());
+
+	vk::PipelineInputAssemblyStateCreateInfo inputAssemblyInfo({}, vk::PrimitiveTopology::eTriangleList, VK_FALSE);
+
+	vk::Viewport						viewport(0.0f, 0.0f, 800.0f, 600.0f, 0.0f, 1.0f);
+	vk::Rect2D							scissor({0, 0}, {800, 600});
+	vk::PipelineViewportStateCreateInfo viewportStateInfo({}, 1, &viewport, 1, &scissor);
+
+	vk::PipelineRasterizationStateCreateInfo rasterizerInfo({}, VK_FALSE, VK_FALSE, vk::PolygonMode::eFill,
+															vk::CullModeFlagBits::eBack, vk::FrontFace::eClockwise,
+															VK_FALSE, 0.0f, 0.0f, 0.0f, 1.0f);
+
+	vk::PipelineMultisampleStateCreateInfo multisampleInfo({}, vk::SampleCountFlagBits::e1, VK_FALSE, 1.0f, nullptr,
+														   VK_FALSE, VK_FALSE);
+
+	vk::PipelineColorBlendAttachmentState colorBlendAttachment(
+		VK_FALSE, vk::BlendFactor::eOne, vk::BlendFactor::eZero, vk::BlendOp::eAdd, vk::BlendFactor::eOne,
+		vk::BlendFactor::eZero, vk::BlendOp::eAdd,
+		vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG | vk::ColorComponentFlagBits::eB |
+			vk::ColorComponentFlagBits::eA);
+
+	vk::PipelineColorBlendStateCreateInfo colorBlending({}, VK_FALSE, vk::LogicOp::eCopy, 1, &colorBlendAttachment,
+														{0.0f, 0.0f, 0.0f, 0.0f});
+
+	std::array<vk::DynamicState, 3>	   dynamicStates = {vk::DynamicState::eViewport, vk::DynamicState::eScissor,
+														vk::DynamicState::eBlendConstants};
+	vk::PipelineDynamicStateCreateInfo dynamicStateInfo({}, dynamicStates.size(), dynamicStates.data());
+
+	vk::PipelineDepthStencilStateCreateInfo depthStencilInfo({}, VK_TRUE, VK_TRUE, vk::CompareOp::eLess, VK_FALSE,
+															 VK_FALSE, vk::StencilOpState(), vk::StencilOpState(), 0.0f,
+															 1.0f);
+
+	vk::Format						colorFormat = vk::Format::eB8G8R8A8Unorm;
+	vk::PipelineRenderingCreateInfo pipelineRenderingInfo(0, 1, &colorFormat);
+
+	vk::GraphicsPipelineCreateInfo pipelineInfo(
+		{}, static_cast<uint32_t>(shaderStages.size()), shaderStages.data(), &vertexInputInfo, &inputAssemblyInfo,
+		nullptr,	 // tessellation
+		&viewportStateInfo, &rasterizerInfo, &multisampleInfo, &depthStencilInfo, &colorBlending, &dynamicStateInfo,
+		*pipelineLayout, vk::RenderPass(nullptr), 0, nullptr, -1, &pipelineRenderingInfo);
+
+	auto pipelines = device.createGraphicsPipelines(nullptr, {pipelineInfo});
+	pipeline	   = std::move(pipelines[0]);
 }
 
+void VulkanNRIProgram::bind(NRICommandBuffer &commandBuffer) {
+	auto &vkCmdBuf = static_cast<VulkanNRICommandBuffer &>(commandBuffer);
+	vkCmdBuf.commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *pipeline);
+}
+void VulkanNRIProgram::unbind(NRICommandBuffer &commandBuffer) {
+	static_cast<void>(commandBuffer);
+	// No unbind in Vulkan
+}
+
+void VulkanNRIProgram::draw(NRICommandBuffer &commandBuffer, uint32_t vertexCount, uint32_t instanceCount,
+							uint32_t firstVertex, uint32_t firstInstance) {
+	auto &vkCmdBuf = static_cast<VulkanNRICommandBuffer &>(commandBuffer);
+	vkCmdBuf.commandBuffer.draw(vertexCount, instanceCount, firstVertex, firstInstance);
+}
 static VkSurfaceKHR createSurface(QApplication &app, VulkanNRIQWindow &window, const VulkanNRI *nri);
 
 #ifdef __linux__
