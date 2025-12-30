@@ -5,6 +5,7 @@
 	#include <dxgi1_6.h>
 	#include <d3d12.h>
 	#include <wrl.h>
+	#include <dxgidebug.h>
 
 using Microsoft::WRL::ComPtr;
 
@@ -33,12 +34,15 @@ class DescriptorAllocator {
 };
 
 class DX12NRIAllocation : public NRIAllocation {
-	ComPtr<ID3D12Heap> heap = nullptr;
+	ComPtr<ID3D12Heap>	   heap = nullptr;
+	NRI::MemoryTypeRequest type;
 
    public:
 	DX12NRIAllocation() = default;
-	DX12NRIAllocation(ID3D12Heap *h) : heap(h) {}
-	ID3D12Heap *operator*() const { return heap.Get(); }
+	DX12NRIAllocation(ID3D12Heap *h, NRI::MemoryTypeRequest type) : heap(h), type(type) {}
+
+	NRI::MemoryTypeRequest getTypeRequest() const { return type; }
+	ID3D12Heap			  *operator*() const { return heap.Get(); }
 };
 
 class DX12NRIBuffer : public NRIBuffer {
@@ -48,10 +52,17 @@ class DX12NRIBuffer : public NRIBuffer {
 
    public:
 	DX12NRIBuffer() = default;
-	DX12NRIBuffer(D3D12_RESOURCE_DESC desc, ID3D12Device *dev) : resourceDesc(desc), device(dev) {}
+	DX12NRIBuffer(const D3D12_RESOURCE_DESC &desc, ID3D12Device *dev) : resourceDesc(desc), device(dev) {}
 
 	NRI::MemoryRequirements getMemoryRequirements() override;
-	void					bindMemory(NRIAllocation &allocation, std::size_t offset) override {}
+	void					bindMemory(NRIAllocation &allocation, std::size_t offset) override;
+
+	void *map(std::size_t offset, std::size_t size) override;
+	void  unmap() override;
+	void  copyFrom(NRICommandBuffer &commandBuffer, NRIBuffer &srcBuffer, std::size_t srcOffset, std::size_t dstOffset,
+				   std::size_t size) override;
+
+	void bindAsVertexBuffer(NRICommandBuffer &commandBuffer, uint32_t binding, std::size_t offset) override;
 };
 
 class DX12NRIImage2D : public NRIImage2D {
@@ -61,9 +72,9 @@ class DX12NRIImage2D : public NRIImage2D {
 
 	D3D12_CPU_DESCRIPTOR_HANDLE viewHandle = {};
 
-	uint32_t			   width;
-	uint32_t			   height;
-	NRI::ImageUsage		   usage;
+	uint32_t		width;
+	uint32_t		height;
+	NRI::ImageUsage usage;
 
 	D3D12_RESOURCE_STATES currentState = D3D12_RESOURCE_STATE_COMMON;
 
@@ -81,7 +92,9 @@ class DX12NRIImage2D : public NRIImage2D {
 
 	void clear(NRICommandBuffer &commandBuffer, glm::vec4 color) override;
 
-	void prepareForPresent(NRICommandBuffer &commandBuffer) override;
+	void	 prepareForPresent(NRICommandBuffer &commandBuffer) override;
+	uint32_t getWidth() const override { return width; }
+	uint32_t getHeight() const override { return height; }
 
 	D3D12_CPU_DESCRIPTOR_HANDLE getViewHandle() const { return viewHandle; }
 };
@@ -98,29 +111,64 @@ class DX12NRICommandPool : public NRICommandPool {
 class DX12NRICommandQueue : public NRICommandQueue {
 	ComPtr<ID3D12CommandQueue> commandQueue = nullptr;
 
+	ComPtr<ID3D12Fence> fence	   = nullptr;
+	HANDLE				fenceEvent = nullptr;
+	uint64_t			fenceValue = 0;
+
    public:
 	DX12NRICommandQueue() = default;
 	DX12NRICommandQueue(ID3D12Device *device);
 
-	void submit(NRICommandBuffer &commandBuffer) override;
-	void synchronize() override {}
+	SubmitKey submit(NRICommandBuffer &commandBuffer) override;
+	void	  wait(SubmitKey key) override;
 
 	ID3D12CommandQueue *operator*() const { return commandQueue.Get(); }
 };
 
 class DX12NRICommandBuffer : public NRICommandBuffer {
-	ComPtr<ID3D12GraphicsCommandList> commandList = nullptr;
-	ID3D12CommandAllocator		 *commandAllocator = nullptr;
+	ComPtr<ID3D12GraphicsCommandList> commandList	   = nullptr;
+	ID3D12CommandAllocator			 *commandAllocator = nullptr;
+	bool							  opened		   = false;
 
    public:
 	DX12NRICommandBuffer() = default;
 	DX12NRICommandBuffer(ID3D12CommandAllocator *commandAllocator, ID3D12Device *device);
 
-	void begin() override { commandList->Reset(commandAllocator, nullptr); }
-	void end() override { commandList->Close(); }
+	void begin() override {
+		if (!opened) {
+			HRESULT hr = commandList->Reset(commandAllocator, nullptr);
+			assert(SUCCEEDED(hr) && "Failed to reset command list");
+			opened = true;
+		}
+	}
+	void end() override {
+		if (opened) {
+			HRESULT hr = commandList->Close();
+			assert(SUCCEEDED(hr) && "Failed to close command list");
+			opened = false;
+		}
+	}
 
+	void beginRendering(NRIImage2D &renderTarget) override;
+	void endRendering() override;
+
+	ID3D12CommandAllocator	  *getCommandAllocator() const { return commandAllocator; }
 	ID3D12GraphicsCommandList *operator*() const { return commandList.Get(); }
 	ID3D12GraphicsCommandList *operator->() const { return commandList.Get(); }
+};
+
+class DX12NRIProgram : public NRIProgram {
+	ComPtr<ID3D12PipelineState> pipelineState = nullptr;
+	ComPtr<ID3D12RootSignature> rootSignature = nullptr;
+
+   public:
+	DX12NRIProgram(std::vector<NRI::ShaderCreateInfo> &&shaderCreateInfos, ID3D12Device *device);
+
+	void bind(NRICommandBuffer &commandBuffer) override;
+	void unbind(NRICommandBuffer &commandBuffer) override;
+
+	void draw(NRICommandBuffer &commandBuffer, uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex,
+			  uint32_t firstInstance) override;
 };
 
 class DX12NRI;
@@ -138,9 +186,11 @@ class DX12NRIQWindow : public NRIQWindow {
 	std::vector<DX12NRIImage2D> swapchainImages;
 
    protected:
+	void resizeEvent(QResizeEvent *event) override;
    public:
 	DX12NRIQWindow(DX12NRI &nri, QApplication &app, std::unique_ptr<Renderer> &&renderer);
-	void drawFrame() override;
+	void				 drawFrame() override;
+	DX12NRICommandQueue &getMainQueue() override;
 
 	const auto &getSwapChain() const { return swapChain; }
 	auto	   &getSwapChain() { return swapChain; }
@@ -154,11 +204,15 @@ class DX12NRI : public NRI {
 	ComPtr<IDXGIAdapter1> adapter = nullptr;
 	ComPtr<ID3D12Device>  device  = nullptr;
 
-	DX12NRICommandPool commandAllocator;
+	DX12NRICommandPool	commandAllocator;
 	DescriptorAllocator descriptorAllocator;
+
+	ComPtr<ID3D12Debug6> debugController;
+	ComPtr<IDXGIDebug1>	 dxgiDebug;
 
    public:
 	DX12NRI();
+	~DX12NRI();
 
 	std::unique_ptr<NRIBuffer>		  createBuffer(std::size_t size, BufferUsage usage) override;
 	std::unique_ptr<NRIImage2D>		  createImage2D(uint32_t width, uint32_t height, NRI::Format fmt,
@@ -167,16 +221,17 @@ class DX12NRI : public NRI {
 	std::unique_ptr<NRICommandQueue>  createCommandQueue() override;
 	std::unique_ptr<NRICommandBuffer> createCommandBuffer(const NRICommandPool &commandPool) override;
 	std::unique_ptr<NRICommandPool>	  createCommandPool() override;
-	NRIQWindow *createQWidgetSurface(QApplication &app, std::unique_ptr<Renderer> &&renderer) override;
+	NRIQWindow				   *createQWidgetSurface(QApplication &app, std::unique_ptr<Renderer> &&renderer) override;
+	std::unique_ptr<NRIProgram> createProgram(std::vector<ShaderCreateInfo> &&shaderInfos) override;
 
 	void synchronize() const override {}
 
-	auto  getDevice() const { return device.Get(); }
-	auto &getFactory() const { return factory; }
-	const auto &getDefaultCommandPool() const { return commandAllocator; }
-	auto &getDefaultCommandPool() override { return commandAllocator; }
-	const auto &getDescriptorAllocator() const { return descriptorAllocator; }
-	auto &getDescriptorAllocator() { return descriptorAllocator; }
+	auto				getDevice() const { return device.Get(); }
+	auto			   &getFactory() const { return factory; }
+	const auto		   &getDefaultCommandPool() const { return commandAllocator; }
+	DX12NRICommandPool &getDefaultCommandPool() override { return commandAllocator; }
+	const auto		   &getDescriptorAllocator() const { return descriptorAllocator; }
+	auto			   &getDescriptorAllocator() { return descriptorAllocator; }
 
    private:
 	void createDevice();

@@ -14,6 +14,8 @@ class NRICommandQueue;
 class NRICommandBuffer;
 class NRIQWindow;
 class NRIProgram;
+class NRIGraphicsProgram;
+class NRIComputeProgram;
 class Renderer;
 
 /// NRI - Native Rendering Interface
@@ -165,7 +167,12 @@ class NRI {
 		_FORMAT_NUM					= 131
 	};
 
-	enum MemoryTypeRequest { MEMORY_TYPE_UPLOAD = 1 << 0, MEMORY_TYPE_READBACK = 1 << 1, MEMORY_TYPE_DEVICE = 1 << 2 };
+	enum MemoryTypeRequest {
+		MEMORY_TYPE_UPLOAD	 = 0,
+		MEMORY_TYPE_READBACK = 1,
+		MEMORY_TYPE_DEVICE	 = 2,
+		_MEMORY_TYPE_NUM	 = 3
+	};
 
 	enum ImageUsage {
 		IMAGE_USAGE_TRANSFER_SRC			 = 1 << 0,
@@ -216,11 +223,39 @@ class NRI {
 	virtual NRICommandPool					 &getDefaultCommandPool()								 = 0;
 
 	struct ShaderCreateInfo {
-		std::string		sourceFile;
-		std::string		entryPoint;
-		NRI::ShaderType shaderType;
+		std::string		sourceFile;		/// path to the shader source file
+		std::string		entryPoint;		/// entry point function name
+		NRI::ShaderType shaderType;		/// type of the shader (vertex, fragment, etc.)
 	};
-	virtual std::unique_ptr<NRIProgram> createProgram(std::vector<ShaderCreateInfo> &&shaderInfos) = 0;
+
+	enum VertexInputRate { VERTEX_INPUT_RATE_VERTEX = 0, VERTEX_INPUT_RATE_INSTANCE = 1 };
+
+	struct VertexAttribute {
+		uint32_t		location;	   /// shader-specified location
+		NRI::Format		format;		   /// format of the attribute
+		uint32_t		offset;		   /// offset in vertex buffer
+		VertexInputRate inputRate;	   /// input rate (per-vertex or per-instance)
+		std::string		name;		   /// optional name of the attribute
+	};
+
+	struct VertexBinding {
+		uint32_t					 binding;		/// binding index
+		uint32_t					 stride;		/// size of one vertex
+		VertexInputRate				 inputRate;		/// input rate (per-vertex or per-instance)
+		std::vector<VertexAttribute> attributes;
+	};
+
+	enum PrimitiveType {
+		PRIMITIVE_TYPE_TRIANGLES	  = 0,
+		PRIMITIVE_TYPE_TRIANGLE_STRIP = 1,
+		PRIMITIVE_TYPE_LINES		  = 2,
+		PRIMITIVE_TYPE_LINE_STRIP	  = 3,
+		PRIMITIVE_TYPE_POINTS		  = 4
+	};
+
+	virtual std::unique_ptr<NRIGraphicsProgram> createGraphicsProgram(std::vector<ShaderCreateInfo> &&shaderInfos,
+																	  std::vector<VertexBinding>	&&vertexAttributes,
+																	  PrimitiveType primitiveType) = 0;
 
 	virtual NRIQWindow *createQWidgetSurface(QApplication &app, std::unique_ptr<Renderer> &&renderer) = 0;
 
@@ -278,8 +313,10 @@ class NRICommandQueue {
    public:
 	virtual ~NRICommandQueue() {}
 
-	virtual void submit(NRICommandBuffer &commandBuffer) = 0;
-	virtual void synchronize()							 = 0;
+	using SubmitKey = uint64_t;
+
+	virtual SubmitKey submit(NRICommandBuffer &commandBuffer) = 0;
+	virtual void	  wait(SubmitKey)						  = 0;
 };
 
 class NRICommandBuffer {
@@ -299,11 +336,23 @@ class NRIProgram {
    public:
 	virtual ~NRIProgram() {}
 
-	virtual void bind(NRICommandBuffer &commandBuffer) = 0;
+	virtual void bind(NRICommandBuffer &commandBuffer)	 = 0;
 	virtual void unbind(NRICommandBuffer &commandBuffer) = 0;
+};
 
+class NRIGraphicsProgram : virtual public NRIProgram {
+   public:
+	std::vector<NRI::VertexBinding> vertexBindings;
+
+	NRIGraphicsProgram(std::vector<NRI::VertexBinding> &&bindings) : vertexBindings(std::move(bindings)) {}
 	virtual void draw(NRICommandBuffer &commandBuffer, uint32_t vertexCount, uint32_t instanceCount,
 					  uint32_t firstVertex, uint32_t firstInstance) = 0;
+};
+
+class NRIComputeProgram : virtual public NRIProgram {
+   public:
+	virtual void dispatch(NRICommandBuffer &commandBuffer, uint32_t groupCountX, uint32_t groupCountY,
+						  uint32_t groupCountZ) = 0;
 };
 
 class Renderer {
@@ -333,8 +382,9 @@ class NRIQWindow : public QWindow {
 			for (const auto &cb : frameCallbacks)
 				cb();
 		});
-		timer.start(0);
 	}
+
+	void startFrameTimer() { timer.start(0); }
 
 	void addFrameCallback(const frameCallback &cb) { frameCallbacks.push_back(cb); }
 
@@ -346,6 +396,6 @@ class NRIQWindow : public QWindow {
 
 	virtual void drawFrame() = 0;
 
-	auto &getRenderer() { return renderer; }
+	auto					&getRenderer() { return renderer; }
 	virtual NRICommandQueue &getMainQueue() = 0;
 };

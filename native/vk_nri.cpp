@@ -6,10 +6,9 @@
 #include <ostream>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_raii.hpp>
-#include "vulkan/vulkan.hpp"
 #include <vulkan/vulkan_core.h>
-
-#include <dxc/dxcapi.h>
+#include <fstream>
+#include <format>
 
 static const std::vector<const char *> validationLayers = {
 	"VK_LAYER_KHRONOS_validation"
@@ -311,8 +310,9 @@ void VulkanNRIBuffer::bindMemory(NRIAllocation &allocation, std::size_t offset) 
 }
 void *VulkanNRIBuffer::map(std::size_t offset, std::size_t size) {
 	assert(allocation != nullptr);
-	void *data;
+	void *data = nullptr;
 	vkMapMemory(allocation->getDevice(), allocation->getMemory(), offset, size, 0, &data);
+	if (data == nullptr) { throw std::runtime_error("Failed to map buffer memory."); }
 	return data;
 }
 
@@ -462,8 +462,11 @@ std::unique_ptr<NRICommandPool> VulkanNRI::createCommandPool() {
 	return std::make_unique<VulkanNRICommandPool>(std::move(pool));
 }
 
-std::unique_ptr<NRIProgram> VulkanNRI::createProgram(std::vector<ShaderCreateInfo> &&shaderInfos) {
-	return std::make_unique<VulkanNRIProgram>(std::move(shaderInfos), device);
+std::unique_ptr<NRIGraphicsProgram> VulkanNRI::createGraphicsProgram(std::vector<ShaderCreateInfo> &&shaderInfos,
+																	 std::vector<VertexBinding>	   &&vertexBindings,
+																	 NRI::PrimitiveType				 primitiveType) {
+	return std::make_unique<VulkanNRIGraphicsProgram>(std::move(shaderInfos), std::move(vertexBindings), primitiveType,
+													  device);
 }
 std::unique_ptr<NRICommandQueue> VulkanNRI::createCommandQueue() {
 	vk::CommandPoolCreateInfo poolCI(vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
@@ -605,16 +608,42 @@ void VulkanNRICommandBuffer::beginRendering(NRIImage2D &renderTarget) {
 
 void VulkanNRICommandBuffer::endRendering() { commandBuffer.endRendering(); }
 
-VulkanNRIProgram::VulkanNRIProgram(std::vector<NRI::ShaderCreateInfo> &&stagesInfo, const vk::raii::Device &device)
-	: pipeline(nullptr), pipelineLayout(nullptr) {
+vk::PrimitiveTopology nriPrimitiveType2vkTopology[] = {
+	vk::PrimitiveTopology::eTriangleList, vk::PrimitiveTopology::eTriangleStrip, vk::PrimitiveTopology::eLineList,
+	vk::PrimitiveTopology::eLineStrip,	  vk::PrimitiveTopology::ePointList,
+};
+
+VulkanNRIProgram::VulkanNRIProgram() : pipeline(nullptr), pipelineLayout(nullptr) {}
+
+std::pair<std::vector<vk::raii::ShaderModule>, std::vector<vk::PipelineShaderStageCreateInfo>> VulkanNRIProgram::
+	createShaderModules(std::vector<NRI::ShaderCreateInfo> &&stagesInfo, const vk::raii::Device &device) {
 	std::vector<vk::PipelineShaderStageCreateInfo> shaderStages;
 	std::vector<vk::raii::ShaderModule>			   shaderModules;
 
-	IDxcCompiler3 *compiler;
-	DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&compiler));
+	using namespace slang;
+	static Slang::ComPtr<IGlobalSession> globalSession = nullptr;
+	if (!globalSession) {
+		SlangGlobalSessionDesc desc = {};
+		createGlobalSession(&desc, globalSession.writeRef());
+	}
 
-	IDxcUtils *utils;
-	DxcCreateInstance(CLSID_DxcUtils, IID_PPV_ARGS(&utils));
+	SessionDesc sessionDesc;
+	// add parameters
+	TargetDesc spirvTraget{};
+	spirvTraget.format	= SLANG_SPIRV;
+	spirvTraget.profile = globalSession->findProfile("spirv_1_5");
+
+	sessionDesc.targetCount = 1;
+	sessionDesc.targets		= &spirvTraget;
+
+	sessionDesc.searchPathCount = 0;
+
+	PreprocessorMacroDesc apiMacro	   = {"VULKAN", "1"};
+	sessionDesc.preprocessorMacroCount = 1;
+	sessionDesc.preprocessorMacros	   = &apiMacro;
+
+	Slang::ComPtr<ISession> session;
+	globalSession->createSession(sessionDesc, session.writeRef());
 
 	for (const auto &stageInfo : stagesInfo) {
 		vk::ShaderStageFlagBits stage;
@@ -623,74 +652,111 @@ VulkanNRIProgram::VulkanNRIProgram(std::vector<NRI::ShaderCreateInfo> &&stagesIn
 			case NRI::ShaderType::SHADER_TYPE_FRAGMENT: stage = vk::ShaderStageFlagBits::eFragment; break;
 			default: throw std::runtime_error("Unsupported shader stage!");
 		}
+		const std::filesystem::path sourceFile{stageInfo.sourceFile};
 
-		std::vector<uint8_t> sourceCode;
-		IDxcBlobEncoding	*sourceBlob;
-		std::wstring		 wSourceFile = std::wstring(stageInfo.sourceFile.begin(), stageInfo.sourceFile.end());
-		HRESULT				 hr			 = utils->LoadFile(wSourceFile.c_str(), nullptr, &sourceBlob);
-		if (FAILED(hr)) {
-			throw std::runtime_error("Failed to load shader source file: " + std::string(stageInfo.sourceFile));
+		std::ifstream fin(sourceFile);
+		std::string	  source{(std::istreambuf_iterator<char>(fin)), std::istreambuf_iterator<char>()};
+
+		SlangResult sr;
+
+		Slang::ComPtr<IBlob>   diagnosticsBlob;
+		Slang::ComPtr<IModule> module{session->loadModuleFromSourceString(sourceFile.filename().string().c_str(),
+																		  sourceFile.parent_path().string().c_str(),
+																		  source.c_str(), diagnosticsBlob.writeRef())};
+		if (diagnosticsBlob)
+			std::cerr << std::format("Error compiling shader {}: \n{}", stageInfo.sourceFile,
+									 (char *)diagnosticsBlob->getBufferPointer())
+					  << std::endl;
+		if (!module) throw std::runtime_error(std::format("Error compiling shader {}", stageInfo.sourceFile));
+
+		Slang::ComPtr<IEntryPoint> entryPoint;
+		sr = module->findEntryPointByName(stageInfo.entryPoint.c_str(), entryPoint.writeRef());
+
+		if (SLANG_FAILED(sr))
+			throw std::runtime_error(
+				std::format("Cannot find entry point {} in shader {}", stageInfo.entryPoint, stageInfo.sourceFile));
+
+		IComponentType				 *components[] = {module, entryPoint};
+		Slang::ComPtr<IComponentType> program;
+		sr = session->createCompositeComponentType(components, 2, program.writeRef());
+
+		if (SLANG_FAILED(sr))
+			throw std::runtime_error(std::format("Cannot bind entry point and shader for {}", stageInfo.sourceFile));
+
+		Slang::ComPtr<IComponentType> linkedProgram{nullptr};
+		Slang::ComPtr<ISlangBlob>	  diagnosticBlob;
+		sr = program->link(linkedProgram.writeRef(), diagnosticBlob.writeRef());
+		if (diagnosticBlob)
+			std::cerr << std::format("Error linking shader {}: \n{}", stageInfo.sourceFile,
+									 (char *)diagnosticBlob->getBufferPointer())
+					  << std::endl;
+		if (SLANG_FAILED(sr)) throw std::runtime_error(std::format("Error linking shader {}", stageInfo.sourceFile));
+
+		Slang::ComPtr<IBlob> spirvBlob;
+		sr = linkedProgram->getEntryPointCode(0, 0, spirvBlob.writeRef(), diagnosticsBlob.writeRef());
+		if (diagnosticsBlob)
+			std::cerr << std::format("Error emitting code for shader {}: \n{}", stageInfo.sourceFile,
+									 (char *)diagnosticsBlob->getBufferPointer())
+					  << std::endl;
+		if (SLANG_FAILED(sr))
+			throw std::runtime_error(std::format("Error emitting code for shader {}", stageInfo.sourceFile));
+
+		//	ProgramLayout *programLayout = linkedProgram->getLayout(0, diagnosticsBlob.writeRef());
+		//	if (diagnosticsBlob)
+		//		std::cerr << std::format("Error getting layout for shader {}: \n{}", stageInfo.sourceFile,
+		//								 (char *)diagnosticsBlob->getBufferPointer())
+		//				  << std::endl;
+
+		// Reflect vertex shader inputs
+		if (stageInfo.shaderType == NRI::ShaderType::SHADER_TYPE_VERTEX) {
+			// TODO: implement if needed
 		}
 
-		std::vector<LPCWSTR> arguments;
-		arguments.push_back(L"-E");
-		std::wstring entryPoint = std::wstring(stageInfo.entryPoint.begin(), stageInfo.entryPoint.end());
-		arguments.push_back(entryPoint.c_str());
-		arguments.push_back(L"-T");
-
-		switch (stageInfo.shaderType) {
-			case NRI::ShaderType::SHADER_TYPE_VERTEX: arguments.push_back(L"vs_6_0"); break;
-			case NRI::ShaderType::SHADER_TYPE_FRAGMENT: arguments.push_back(L"ps_6_0"); break;
-			default: throw std::runtime_error("Unsupported shader stage!");
-		}
-		arguments.push_back(L"-spirv");
-
-		DxcBuffer buffer{};
-		buffer.Ptr		= sourceBlob->GetBufferPointer();
-		buffer.Size		= sourceBlob->GetBufferSize();
-		buffer.Encoding = 0;
-
-		std::cout << "Compiling shader: " << stageInfo.sourceFile << std::endl;
-
-		IDxcResult *result;
-		hr = compiler->Compile(&buffer, arguments.data(), static_cast<UINT32>(arguments.size()), nullptr,
-							   IID_PPV_ARGS(&result));
-		if (FAILED(hr)) { throw std::runtime_error("Failed to compile shader: " + std::string(stageInfo.sourceFile)); }
-
-		IDxcBlobEncoding *errorBuffer;
-		result->GetErrorBuffer(&errorBuffer);
-		if (errorBuffer != nullptr && errorBuffer->GetBufferSize() > 0) {
-			std::string errorMessage(reinterpret_cast<const char *>(errorBuffer->GetBufferPointer()),
-									 errorBuffer->GetBufferSize());
-			std::cerr << "Shader compilation warnings/errors: " << errorMessage << std::endl;
-		}
-
-		IDxcBlob *spirvBlob;
-		result->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&spirvBlob), nullptr);
-
-		vk::ShaderModuleCreateInfo shaderModuleInfo({}, spirvBlob->GetBufferSize(),
-													reinterpret_cast<const uint32_t *>(spirvBlob->GetBufferPointer()));
+		vk::ShaderModuleCreateInfo shaderModuleInfo({}, spirvBlob->getBufferSize(),
+													reinterpret_cast<const uint32_t *>(spirvBlob->getBufferPointer()));
 		shaderModules.emplace_back(device, shaderModuleInfo);
 
-		vk::PipelineShaderStageCreateInfo shaderStageInfo({}, stage, *shaderModules.back(),
-														  stageInfo.entryPoint.c_str());
+		vk::PipelineShaderStageCreateInfo shaderStageInfo({}, stage, *shaderModules.back(), "main");
 		shaderStages.push_back(shaderStageInfo);
 	}
+	return {std::move(shaderModules), std::move(shaderStages)};
+}
+
+vk::VertexInputRate nriInputRate2vkInputRate[] = {
+	vk::VertexInputRate::eVertex, 
+	vk::VertexInputRate::eInstance,
+};
+
+VulkanNRIGraphicsProgram::VulkanNRIGraphicsProgram(std::vector<NRI::ShaderCreateInfo> &&stagesInfo,
+												   std::vector<NRI::VertexBinding>	  &&vertexBindings,
+												   NRI::PrimitiveType primitiveType, const vk::raii::Device &device)
+	: VulkanNRIProgram(), NRIGraphicsProgram(std::move(vertexBindings)) {
+	auto [shaderModules, shaderStages] = createShaderModules(std::move(stagesInfo), device);
 
 	vk::PipelineLayoutCreateInfo pipelineLayoutInfo{};
 	pipelineLayout = vk::raii::PipelineLayout(device, pipelineLayoutInfo);
 
-	// vec3 position + vec3 color
-	vk::VertexInputBindingDescription bindingDescription(0, sizeof(float) * 6, vk::VertexInputRate::eVertex);
-	const std::array<vk::VertexInputAttributeDescription, 2> attributeDescriptions = {
-		vk::VertexInputAttributeDescription(0, 0, vk::Format::eR32G32B32Sfloat, 0),
-		vk::VertexInputAttributeDescription(1, 0, vk::Format::eR32G32B32Sfloat, sizeof(float) * 3),
-	};
+	std::vector<vk::VertexInputBindingDescription>	 bindingDescriptions;
+	std::vector<vk::VertexInputAttributeDescription> attributeDescriptions;
+	for (const auto &binding : this->vertexBindings) {
+		vk::VertexInputRate inputRate = nriInputRate2vkInputRate[static_cast<int>(binding.inputRate)];
+		assert(int(inputRate) != -1);
+		vk::VertexInputBindingDescription bindingDescription(binding.binding, binding.stride, inputRate);
+		bindingDescriptions.push_back(bindingDescription);
 
-	vk::PipelineVertexInputStateCreateInfo vertexInputInfo(
-		{}, 1, &bindingDescription, static_cast<uint32_t>(attributeDescriptions.size()), attributeDescriptions.data());
+		for (const auto &attribute : binding.attributes) {
+			vk::VertexInputAttributeDescription attributeDescription(attribute.location, binding.binding,
+																	 vk::Format(attribute.format), attribute.offset);
+			attributeDescriptions.push_back(attributeDescription);
+		}
+	}
 
-	vk::PipelineInputAssemblyStateCreateInfo inputAssemblyInfo({}, vk::PrimitiveTopology::eTriangleList, VK_FALSE);
+	vk::PipelineVertexInputStateCreateInfo vertexInputInfo({}, bindingDescriptions.size(), bindingDescriptions.data(),
+														   attributeDescriptions.size(), attributeDescriptions.data());
+
+	vk::PrimitiveTopology vkTopology = nriPrimitiveType2vkTopology[static_cast<int>(primitiveType)];
+	assert(int(vkTopology) != -1);
+	vk::PipelineInputAssemblyStateCreateInfo inputAssemblyInfo({}, vkTopology, VK_FALSE);
 
 	vk::Viewport						viewport(0.0f, 0.0f, 800.0f, 600.0f, 0.0f, 1.0f);
 	vk::Rect2D							scissor({0, 0}, {800, 600});
@@ -742,11 +808,18 @@ void VulkanNRIProgram::unbind(NRICommandBuffer &commandBuffer) {
 	// No unbind in Vulkan
 }
 
-void VulkanNRIProgram::draw(NRICommandBuffer &commandBuffer, uint32_t vertexCount, uint32_t instanceCount,
-							uint32_t firstVertex, uint32_t firstInstance) {
+void VulkanNRIGraphicsProgram::draw(NRICommandBuffer &commandBuffer, uint32_t vertexCount, uint32_t instanceCount,
+									uint32_t firstVertex, uint32_t firstInstance) {
 	auto &vkCmdBuf = static_cast<VulkanNRICommandBuffer &>(commandBuffer);
 	vkCmdBuf.commandBuffer.draw(vertexCount, instanceCount, firstVertex, firstInstance);
 }
+
+void VulkanNRIComputeProgram::dispatch(NRICommandBuffer &commandBuffer, uint32_t groupCountX, uint32_t groupCountY,
+									   uint32_t groupCountZ) {
+	auto &vkCmdBuf = static_cast<VulkanNRICommandBuffer &>(commandBuffer);
+	vkCmdBuf.commandBuffer.dispatch(groupCountX, groupCountY, groupCountZ);
+}
+
 static VkSurfaceKHR createSurface(QApplication &app, VulkanNRIQWindow &window, const VulkanNRI *nri);
 
 #ifdef __linux__
@@ -812,23 +885,25 @@ NRIQWindow *VulkanNRI::createQWidgetSurface(QApplication &app, std::unique_ptr<R
 	window->getPresentQueue()	 = std::move(presentQueue);
 
 	window->getRenderer()->initialize(*window);
+	window->startFrameTimer();
 	return window;
 }
 
+vk::MemoryPropertyFlags typeRequest2vkMemoryProperty[] = {
+	vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent,
+	vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent,
+	vk::MemoryPropertyFlagBits::eDeviceLocal};
+
 std::unique_ptr<NRIAllocation> VulkanNRI::allocateMemory(NRI::MemoryRequirements memoryRequirements) {
-	vk::MemoryPropertyFlags properties;
-	if (memoryRequirements.typeRequest & NRI::MemoryTypeRequest::MEMORY_TYPE_UPLOAD)
-		properties |= vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent;
-	if (memoryRequirements.typeRequest & NRI::MemoryTypeRequest::MEMORY_TYPE_READBACK)
-		properties |= vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent;
-	if (memoryRequirements.typeRequest & NRI::MemoryTypeRequest::MEMORY_TYPE_DEVICE)
-		properties |= vk::MemoryPropertyFlagBits::eDeviceLocal;
+	assert(memoryRequirements.typeRequest >= 0);
+	assert(memoryRequirements.typeRequest < NRI::MemoryTypeRequest::_MEMORY_TYPE_NUM);
+	vk::MemoryPropertyFlags properties = typeRequest2vkMemoryProperty[(uint32_t)memoryRequirements.typeRequest];
 
-	vk::PhysicalDeviceMemoryProperties memProperties = physicalDevice.getMemoryProperties();
-
-	uint32_t memoryTypeIndex = -1;
+	vk::PhysicalDeviceMemoryProperties memProperties   = physicalDevice.getMemoryProperties();
+	uint32_t						   memoryTypeIndex = -1;
 	for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
 		if ((memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
+			std::cout << "Found memory type index: " << i << std::endl;
 			memoryTypeIndex = i;
 			break;
 		}
@@ -850,14 +925,18 @@ std::unique_ptr<NRICommandBuffer> VulkanNRI::createCommandBuffer(const NRIComman
 	return std::make_unique<VulkanNRICommandBuffer>(std::move(buffers[0]));
 };
 
-void VulkanNRICommandQueue::submit(NRICommandBuffer &commandBuffer) {
+NRICommandQueue::SubmitKey VulkanNRICommandQueue::submit(NRICommandBuffer &commandBuffer) {
 	auto &cmdBuf = static_cast<VulkanNRICommandBuffer &>(commandBuffer);
 	cmdBuf.end();
 	vk::CommandBuffer vk = cmdBuf.commandBuffer;
 	queue.submit(vk::SubmitInfo(0, nullptr, nullptr, 1, &vk), nullptr);
+	return 0;	  // TODO: fix this
 }
 
-void VulkanNRICommandQueue::synchronize() { queue.waitIdle(); }
+void VulkanNRICommandQueue::wait(SubmitKey key) {
+	static_cast<void>(key);		// TODO: fix this
+	queue.waitIdle();
+}
 
 static int __asd = []() {
 	NRIFactory::getInstance().registerNRI("Vulkan", []() -> NRI * { return new VulkanNRI(); });

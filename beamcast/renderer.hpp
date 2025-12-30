@@ -6,20 +6,18 @@ class BeamcastRenderer : public Renderer {
 	int							   frameCount = 0;
 	std::unique_ptr<NRIAllocation> vertexBufferMemory;
 	std::unique_ptr<NRIBuffer>	   vertexBuffer;
-	std::unique_ptr<NRIProgram>	   shader;
+	std::unique_ptr<NRIGraphicsProgram>	   shader;
 
 	BeamcastRenderer(NRI &nri) : Renderer(nri) {}
 
 	void initialize(NRIQWindow &window) override {
 		// these will die eventually
-		auto uploadBuffer = nri.createBuffer(
-			10000, NRI::BufferUsage::BUFFER_USAGE_TRANSFER_SRC | NRI::BufferUsage::BUFFER_USAGE_TRANSFER_DST);
+		auto uploadBuffer		= nri.createBuffer(10000, NRI::BufferUsage::BUFFER_USAGE_TRANSFER_SRC);
 		auto uploadBufferMemory = nri.allocateMemory(
 			uploadBuffer->getMemoryRequirements().setTypeRequest(NRI::MemoryTypeRequest::MEMORY_TYPE_UPLOAD));
 		uploadBuffer->bindMemory(*uploadBufferMemory, 0);
 
-		vertexBuffer = nri.createBuffer(18 * sizeof(float), NRI::BUFFER_USAGE_VERTEX | NRI::BUFFER_USAGE_TRANSFER_DST |
-																NRI::BUFFER_USAGE_TRANSFER_SRC);
+		vertexBuffer = nri.createBuffer(18 * sizeof(float), NRI::BUFFER_USAGE_VERTEX | NRI::BUFFER_USAGE_TRANSFER_DST);
 		vertexBufferMemory = nri.allocateMemory(
 			vertexBuffer->getMemoryRequirements().setTypeRequest(NRI::MemoryTypeRequest::MEMORY_TYPE_DEVICE));
 		vertexBuffer->bindMemory(*vertexBufferMemory, 0);
@@ -36,15 +34,28 @@ class BeamcastRenderer : public Renderer {
 		vertexBuffer->copyFrom(*cmdBuffer, *uploadBuffer, 0, 0, sizeof(vertices));
 		cmdBuffer->end();
 
-		window.getMainQueue().submit(*cmdBuffer);
-		window.getMainQueue().synchronize();
+		auto key = window.getMainQueue().submit(*cmdBuffer);
+		window.getMainQueue().wait(key);
 
+		shader = nri.createGraphicsProgram(
+			{
+				{PROJECT_ROOT_DIR "shaders/simple.hlsl", "VSMain", NRI::ShaderType::SHADER_TYPE_VERTEX},
+				{PROJECT_ROOT_DIR "shaders/simple.hlsl", "PSMain", NRI::ShaderType::SHADER_TYPE_FRAGMENT},
+			},
+			{
+				{0,
+				 24,
+				 NRI::VertexInputRate::VERTEX_INPUT_RATE_VERTEX,
+				 {
+					 {0, NRI::Format::FORMAT_R32G32B32_SFLOAT, 0, NRI::VertexInputRate::VERTEX_INPUT_RATE_VERTEX,
+					  "inPosition"},
+					 {1, NRI::Format::FORMAT_R32G32B32_SFLOAT, 12, NRI::VertexInputRate::VERTEX_INPUT_RATE_VERTEX,
+					  "inColor"},
+				 }},
+			},
+			NRI::PrimitiveType::PRIMITIVE_TYPE_TRIANGLES);
 
-		shader = nri.createProgram({
-			{"shaders/simple.hlsl", "VSMain", NRI::ShaderType::SHADER_TYPE_VERTEX},
-			{"shaders/simple.hlsl", "PSMain", NRI::ShaderType::SHADER_TYPE_FRAGMENT},
-		});
-
+		std::cout << "Renderer initialized." << std::endl;
 	}
 
 	void render(NRIImage2D &currentImage, NRICommandBuffer &cmdBuf) override {
