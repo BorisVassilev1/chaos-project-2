@@ -16,6 +16,7 @@ class NRIQWindow;
 class NRIProgram;
 class NRIGraphicsProgram;
 class NRIComputeProgram;
+class NRIProgramBuilder;
 class Renderer;
 
 /// NRI - Native Rendering Interface
@@ -253,11 +254,15 @@ class NRI {
 		PRIMITIVE_TYPE_POINTS		  = 4
 	};
 
-	virtual std::unique_ptr<NRIGraphicsProgram> createGraphicsProgram(std::vector<ShaderCreateInfo> &&shaderInfos,
-																	  std::vector<VertexBinding>	&&vertexAttributes,
-																	  PrimitiveType primitiveType) = 0;
+	struct PushConstantRange {
+		uint32_t offset;
+		uint32_t size;
+	};
 
+	virtual std::unique_ptr<NRIProgramBuilder> createProgramBuilder()								  = 0;
 	virtual NRIQWindow *createQWidgetSurface(QApplication &app, std::unique_ptr<Renderer> &&renderer) = 0;
+
+	virtual bool shouldFlipY() const = 0;
 
 	virtual void synchronize() const = 0;
 };
@@ -330,6 +335,24 @@ class NRICommandBuffer {
 	virtual void endRendering()							  = 0;
 };
 
+class NRIProgramBuilder {
+   protected:
+	std::vector<NRI::ShaderCreateInfo>	shaderStagesInfo;
+	std::vector<NRI::VertexBinding>		vertexBindings;
+	NRI::PrimitiveType					primitiveType;
+	std::vector<NRI::PushConstantRange> pushConstantRanges;
+
+   public:
+	virtual ~NRIProgramBuilder() {}
+
+	NRIProgramBuilder &addShaderModule(const NRI::ShaderCreateInfo &shaderInfo);
+	NRIProgramBuilder &setVertexBindings(const std::vector<NRI::VertexBinding> &bindings);
+	NRIProgramBuilder &setPrimitiveType(NRI::PrimitiveType primitiveType);
+	NRIProgramBuilder &setPushConstantRanges(const std::vector<NRI::PushConstantRange> &ranges);
+	virtual std::unique_ptr<NRIGraphicsProgram> buildGraphicsProgram() = 0;
+	virtual std::unique_ptr<NRIComputeProgram>	buildComputeProgram()  = 0;
+};
+
 /// NRIProgram - represents a GPU program (shader)
 /// should contain shader modules, pipeline state and layout
 class NRIProgram {
@@ -338,13 +361,13 @@ class NRIProgram {
 
 	virtual void bind(NRICommandBuffer &commandBuffer)	 = 0;
 	virtual void unbind(NRICommandBuffer &commandBuffer) = 0;
+
+	virtual void setPushConstants(NRICommandBuffer &commandBuffer, const void *data, std::size_t size,
+								  std::size_t offset) = 0;
 };
 
 class NRIGraphicsProgram : virtual public NRIProgram {
    public:
-	std::vector<NRI::VertexBinding> vertexBindings;
-
-	NRIGraphicsProgram(std::vector<NRI::VertexBinding> &&bindings) : vertexBindings(std::move(bindings)) {}
 	virtual void draw(NRICommandBuffer &commandBuffer, uint32_t vertexCount, uint32_t instanceCount,
 					  uint32_t firstVertex, uint32_t firstInstance) = 0;
 };
@@ -355,7 +378,7 @@ class NRIComputeProgram : virtual public NRIProgram {
 						  uint32_t groupCountZ) = 0;
 };
 
-class Renderer {
+class Renderer : public QWidget {
    protected:
 	NRI &nri;
 
@@ -369,32 +392,39 @@ class Renderer {
 class NRIQWindow : public QWindow {
    protected:
 	std::unique_ptr<Renderer> renderer;
+	std::chrono::steady_clock::time_point lastFrameTime;
+	float _deltaTime = 0.0f;
 
 	using frameCallback = std::function<void()>;
+	using resizeCallback = std::function<void(QResizeEvent *)>;
+	using keyCallback	 = std::function<void(QKeyEvent *)>;
+	using mouseCallback	 = std::function<void(QMouseEvent *)>;
 	std::vector<frameCallback> frameCallbacks;
+	std::vector<resizeCallback> resizeCallbacks;
+	std::vector<keyCallback> keyCallbacks;
+	std::vector<mouseCallback> mouseCallbacks;
 	QTimer					   timer;
 	NRI						  &nri;
 
    public:
-	NRIQWindow(NRI &nri, std::unique_ptr<Renderer> &&rendererPtr) : renderer(std::move(rendererPtr)), nri(nri) {
-		connect(&timer, &QTimer::timeout, [this]() {
-			drawFrame();
-			for (const auto &cb : frameCallbacks)
-				cb();
-		});
-	}
+	NRIQWindow(NRI &nri, std::unique_ptr<Renderer> &&rendererPtr);
 
-	void startFrameTimer() { timer.start(0); }
-
-	void addFrameCallback(const frameCallback &cb) { frameCallbacks.push_back(cb); }
-
-	void closeEvent(QCloseEvent *event) override {
-		QWindow::closeEvent(event);
-		std::cout << "Closing NRIQWindow, stopping timer..." << std::endl;
-		timer.stop();
-	}
+	void startFrameTimer();
+	void addFrameCallback(const frameCallback &cb);
+	void addResizeCallback(const resizeCallback &cb);
+	void addKeyCallback(const keyCallback &cb);
+	void addMouseCallback(const mouseCallback &cb);
+	void closeEvent(QCloseEvent *event) override ;
+	void resizeEvent(QResizeEvent *event) override;
+	void keyPressEvent(QKeyEvent *event) override;
+	void keyReleaseEvent(QKeyEvent *event) override;
+	void mousePressEvent(QMouseEvent *event) override;
+	void mouseReleaseEvent(QMouseEvent *event) override;
+	void mouseMoveEvent(QMouseEvent *event) override;
 
 	virtual void drawFrame() = 0;
+
+	auto deltaTime() const { return _deltaTime; }
 
 	auto					&getRenderer() { return renderer; }
 	virtual NRICommandQueue &getMainQueue() = 0;

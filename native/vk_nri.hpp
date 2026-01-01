@@ -7,9 +7,13 @@
 
 #include <vulkan/vulkan_raii.hpp>
 
-#include "slang-reflect-2.hpp"
+#include <slang/slang.h>
+#include <slang/slang-com-ptr.h>
+
 #include "nri.hpp"
 #include "nriFactory.hpp"
+
+class VulkanNRI;
 
 /// A helper class to manage ownership of an object or a reference to an object
 /// template arguments can be for example: <vk::raii::Buffer, vk::Buffer>
@@ -153,27 +157,45 @@ class VulkanNRICommandBuffer : public NRICommandBuffer {
 	VulkanNRICommandBuffer(vk::raii::CommandBuffer &&cmdBuf) : commandBuffer(std::move(cmdBuf)), isRecording(false) {}
 };
 
-class VulkanNRIProgram : virtual NRIProgram {
-   private:
-   public:
-	vk::raii::Pipeline		 pipeline;
-	vk::raii::PipelineLayout pipelineLayout;
-	
-	VulkanNRIProgram();
+class VulkanNRIProgramBuilder : public NRIProgramBuilder {
+   protected:
+	VulkanNRI &nri;
+
 	std::pair<std::vector<vk::raii::ShaderModule>, std::vector<vk::PipelineShaderStageCreateInfo>> createShaderModules(
 		std::vector<NRI::ShaderCreateInfo> &&stagesInfo, const vk::raii::Device &device);
 
+	std::vector<vk::PushConstantRange> createPushConstantRanges(
+		const std::vector<NRI::PushConstantRange> &nriPushConstantRanges);
+
+   public:
+	VulkanNRIProgramBuilder(VulkanNRI &nri) : nri(nri) {}
+
+	std::unique_ptr<NRIGraphicsProgram> buildGraphicsProgram() override;
+	std::unique_ptr<NRIComputeProgram>	buildComputeProgram() override;
+};
+
+class VulkanNRIProgram : virtual NRIProgram {
+   private:
+	vk::raii::Pipeline		 pipeline;
+	vk::raii::PipelineLayout pipelineLayout;
+
+   public:
+	VulkanNRIProgram();
+	VulkanNRIProgram(vk::raii::Pipeline &&ppln, vk::raii::PipelineLayout &&layout)
+		: pipeline(std::move(ppln)), pipelineLayout(std::move(layout)) {}
 
 	void bind(NRICommandBuffer &commandBuffer) override;
 	void unbind(NRICommandBuffer &commandBuffer) override;
+	
+	void setPushConstants(NRICommandBuffer &commandBuffer, const void *data, std::size_t size,
+						  std::size_t offset) override;
+
+	friend class VulkanNRIProgramBuilder;
 };
 
 class VulkanNRIGraphicsProgram : public VulkanNRIProgram, public NRIGraphicsProgram {
    public:
 	using VulkanNRIProgram::VulkanNRIProgram;
-
-	VulkanNRIGraphicsProgram(std::vector<NRI::ShaderCreateInfo> &&stagesInfo, std::vector<NRI::VertexBinding> &&vertexBindings,
-					 NRI::PrimitiveType primitiveType, const vk::raii::Device &device);
 
 	void draw(NRICommandBuffer &commandBuffer, uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex,
 			  uint32_t firstInstance) override;
@@ -186,8 +208,6 @@ class VulkanNRIComputeProgram : public VulkanNRIProgram, public NRIComputeProgra
 	void dispatch(NRICommandBuffer &commandBuffer, uint32_t groupCountX, uint32_t groupCountY,
 				  uint32_t groupCountZ) override;
 };
-
-class VulkanNRI;
 
 class VulkanNRIQWindow : public NRIQWindow {
 	vk::raii::SurfaceKHR   surface;
@@ -233,16 +253,14 @@ class VulkanNRI : public NRI {
    public:
 	VulkanNRI();
 
-	std::unique_ptr<NRIBuffer>			createBuffer(std::size_t size, BufferUsage usage) override;
-	std::unique_ptr<NRIImage2D>			createImage2D(uint32_t width, uint32_t height, NRI::Format fmt,
-													  NRI::ImageUsage usage) override;
-	std::unique_ptr<NRIAllocation>		allocateMemory(MemoryRequirements memoryRequirements) override;
-	std::unique_ptr<NRICommandQueue>	createCommandQueue() override;
-	std::unique_ptr<NRICommandBuffer>	createCommandBuffer(const NRICommandPool &commandPool) override;
-	std::unique_ptr<NRICommandPool>		createCommandPool() override;
-	std::unique_ptr<NRIGraphicsProgram> createGraphicsProgram(std::vector<ShaderCreateInfo>	  &&shaderInfos,
-															  std::vector<NRI::VertexBinding> &&vertexAttributes,
-															  NRI::PrimitiveType				primitiveType) override;
+	std::unique_ptr<NRIBuffer>		   createBuffer(std::size_t size, BufferUsage usage) override;
+	std::unique_ptr<NRIImage2D>		   createImage2D(uint32_t width, uint32_t height, NRI::Format fmt,
+													 NRI::ImageUsage usage) override;
+	std::unique_ptr<NRIAllocation>	   allocateMemory(MemoryRequirements memoryRequirements) override;
+	std::unique_ptr<NRICommandQueue>   createCommandQueue() override;
+	std::unique_ptr<NRICommandBuffer>  createCommandBuffer(const NRICommandPool &commandPool) override;
+	std::unique_ptr<NRICommandPool>	   createCommandPool() override;
+	std::unique_ptr<NRIProgramBuilder> createProgramBuilder() override;
 	NRIQWindow *createQWidgetSurface(QApplication &app, std::unique_ptr<Renderer> &&renderer) override;
 
 	struct QueueFamilyIndices {
@@ -254,6 +272,7 @@ class VulkanNRI : public NRI {
 	const vk::raii::PhysicalDevice &getPhysicalDevice() const { return physicalDevice; }
 	NRICommandPool				   &getDefaultCommandPool() override { return defaultCommandPool; }
 
+	bool shouldFlipY() const override { return true; }
 	void synchronize() const override { device.waitIdle(); }
 
    private:

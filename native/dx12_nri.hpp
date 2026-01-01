@@ -224,6 +224,7 @@ class DX12NRI : public NRI {
 	NRIQWindow				   *createQWidgetSurface(QApplication &app, std::unique_ptr<Renderer> &&renderer) override;
 	std::unique_ptr<NRIProgram> createProgram(std::vector<ShaderCreateInfo> &&shaderInfos) override;
 
+	bool shouldFlipY() const override { return false; }
 	void synchronize() const override {}
 
 	auto				getDevice() const { return device.Get(); }

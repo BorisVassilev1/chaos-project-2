@@ -11,15 +11,24 @@ struct VSOutput
     float3 color : COLOR;
 };
 
+
+struct PushConstants
+{
+	column_major float4x4 modelViewProjection;
+};
+
+[[vk::push_constant]]
+PushConstants pushConstants;
+
+
 [shader("vertex")]
 VSOutput VSMain(VSInput input)
 {
+	float4 pos = float4(input.position, 1.0);
+	pos = mul(pushConstants.modelViewProjection, pos);
 
     VSOutput output;
-    output.position = float4(input.position.xyz, 1.0);
-#if defined(DX12)
-    output.position.y = -output.position.y; // Invert Y for DirectX 12
-#endif
+	output.position = pos;
     output.color = input.color;
     return output;
 }

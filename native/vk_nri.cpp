@@ -9,6 +9,8 @@
 #include <vulkan/vulkan_core.h>
 #include <fstream>
 #include <format>
+#include "nri.hpp"
+#include "vulkan/vulkan.hpp"
 
 static const std::vector<const char *> validationLayers = {
 	"VK_LAYER_KHRONOS_validation"
@@ -462,12 +464,10 @@ std::unique_ptr<NRICommandPool> VulkanNRI::createCommandPool() {
 	return std::make_unique<VulkanNRICommandPool>(std::move(pool));
 }
 
-std::unique_ptr<NRIGraphicsProgram> VulkanNRI::createGraphicsProgram(std::vector<ShaderCreateInfo> &&shaderInfos,
-																	 std::vector<VertexBinding>	   &&vertexBindings,
-																	 NRI::PrimitiveType				 primitiveType) {
-	return std::make_unique<VulkanNRIGraphicsProgram>(std::move(shaderInfos), std::move(vertexBindings), primitiveType,
-													  device);
+std::unique_ptr<NRIProgramBuilder> VulkanNRI::createProgramBuilder() {
+	return std::make_unique<VulkanNRIProgramBuilder>(*this);
 }
+
 std::unique_ptr<NRICommandQueue> VulkanNRI::createCommandQueue() {
 	vk::CommandPoolCreateInfo poolCI(vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
 									 queueFamilyIndices.graphicsFamily.value());
@@ -615,7 +615,7 @@ vk::PrimitiveTopology nriPrimitiveType2vkTopology[] = {
 
 VulkanNRIProgram::VulkanNRIProgram() : pipeline(nullptr), pipelineLayout(nullptr) {}
 
-std::pair<std::vector<vk::raii::ShaderModule>, std::vector<vk::PipelineShaderStageCreateInfo>> VulkanNRIProgram::
+std::pair<std::vector<vk::raii::ShaderModule>, std::vector<vk::PipelineShaderStageCreateInfo>> VulkanNRIProgramBuilder::
 	createShaderModules(std::vector<NRI::ShaderCreateInfo> &&stagesInfo, const vk::raii::Device &device) {
 	std::vector<vk::PipelineShaderStageCreateInfo> shaderStages;
 	std::vector<vk::raii::ShaderModule>			   shaderModules;
@@ -722,19 +722,29 @@ std::pair<std::vector<vk::raii::ShaderModule>, std::vector<vk::PipelineShaderSta
 	return {std::move(shaderModules), std::move(shaderStages)};
 }
 
+std::vector<vk::PushConstantRange> VulkanNRIProgramBuilder::createPushConstantRanges(
+	const std::vector<NRI::PushConstantRange> &nriPushConstantRanges) {
+	std::vector<vk::PushConstantRange> vkPushConstantRanges;
+	for (const auto &nriPushConstantRange : nriPushConstantRanges) {
+		vkPushConstantRanges.emplace_back(vk::ShaderStageFlagBits::eAll, nriPushConstantRange.offset,
+										  nriPushConstantRange.size);
+	}
+	return vkPushConstantRanges;
+}
+
 vk::VertexInputRate nriInputRate2vkInputRate[] = {
-	vk::VertexInputRate::eVertex, 
+	vk::VertexInputRate::eVertex,
 	vk::VertexInputRate::eInstance,
 };
 
-VulkanNRIGraphicsProgram::VulkanNRIGraphicsProgram(std::vector<NRI::ShaderCreateInfo> &&stagesInfo,
-												   std::vector<NRI::VertexBinding>	  &&vertexBindings,
-												   NRI::PrimitiveType primitiveType, const vk::raii::Device &device)
-	: VulkanNRIProgram(), NRIGraphicsProgram(std::move(vertexBindings)) {
-	auto [shaderModules, shaderStages] = createShaderModules(std::move(stagesInfo), device);
+std::unique_ptr<NRIGraphicsProgram> VulkanNRIProgramBuilder::buildGraphicsProgram() {
+	auto [shaderModules, shaderStages] = createShaderModules(std::move(shaderStagesInfo), nri.getDevice());
 
 	vk::PipelineLayoutCreateInfo pipelineLayoutInfo{};
-	pipelineLayout = vk::raii::PipelineLayout(device, pipelineLayoutInfo);
+	auto						 pushConstantRanges = createPushConstantRanges(this->pushConstantRanges);
+	pipelineLayoutInfo.setPushConstantRangeCount(pushConstantRanges.size());
+	pipelineLayoutInfo.setPPushConstantRanges(pushConstantRanges.data());
+	auto pipelineLayout = vk::raii::PipelineLayout(nri.getDevice(), pipelineLayoutInfo);
 
 	std::vector<vk::VertexInputBindingDescription>	 bindingDescriptions;
 	std::vector<vk::VertexInputAttributeDescription> attributeDescriptions;
@@ -763,7 +773,7 @@ VulkanNRIGraphicsProgram::VulkanNRIGraphicsProgram(std::vector<NRI::ShaderCreate
 	vk::PipelineViewportStateCreateInfo viewportStateInfo({}, 1, &viewport, 1, &scissor);
 
 	vk::PipelineRasterizationStateCreateInfo rasterizerInfo({}, VK_FALSE, VK_FALSE, vk::PolygonMode::eFill,
-															vk::CullModeFlagBits::eBack, vk::FrontFace::eClockwise,
+															vk::CullModeFlagBits::eNone, vk::FrontFace::eClockwise,
 															VK_FALSE, 0.0f, 0.0f, 0.0f, 1.0f);
 
 	vk::PipelineMultisampleStateCreateInfo multisampleInfo({}, vk::SampleCountFlagBits::e1, VK_FALSE, 1.0f, nullptr,
@@ -795,8 +805,21 @@ VulkanNRIGraphicsProgram::VulkanNRIGraphicsProgram(std::vector<NRI::ShaderCreate
 		&viewportStateInfo, &rasterizerInfo, &multisampleInfo, &depthStencilInfo, &colorBlending, &dynamicStateInfo,
 		*pipelineLayout, vk::RenderPass(nullptr), 0, nullptr, -1, &pipelineRenderingInfo);
 
-	auto pipelines = device.createGraphicsPipelines(nullptr, {pipelineInfo});
-	pipeline	   = std::move(pipelines[0]);
+	auto pipelines = nri.getDevice().createGraphicsPipelines(nullptr, {pipelineInfo});
+	return std::make_unique<VulkanNRIGraphicsProgram>(std::move(pipelines[0]), std::move(pipelineLayout));
+}
+
+std::unique_ptr<NRIComputeProgram> VulkanNRIProgramBuilder::buildComputeProgram() {
+	auto [shaderModules, shaderStages] = createShaderModules(std::move(shaderStagesInfo), nri.getDevice());
+	assert(shaderStages.size() == 1 && "Compute program must have exactly one shader stage.");
+
+	vk::PipelineLayoutCreateInfo pipelineLayoutInfo{};
+	auto						 pipelineLayout = vk::raii::PipelineLayout(nri.getDevice(), pipelineLayoutInfo);
+
+	vk::ComputePipelineCreateInfo pipelineInfo({}, shaderStages[0], *pipelineLayout);
+
+	auto pipelines = nri.getDevice().createComputePipelines(nullptr, {pipelineInfo});
+	return std::make_unique<VulkanNRIComputeProgram>(std::move(pipelines[0]), std::move(pipelineLayout));
 }
 
 void VulkanNRIProgram::bind(NRICommandBuffer &commandBuffer) {
@@ -806,6 +829,13 @@ void VulkanNRIProgram::bind(NRICommandBuffer &commandBuffer) {
 void VulkanNRIProgram::unbind(NRICommandBuffer &commandBuffer) {
 	static_cast<void>(commandBuffer);
 	// No unbind in Vulkan
+}
+
+void VulkanNRIProgram::setPushConstants(NRICommandBuffer &commandBuffer, const void *data, std::size_t size,
+									   std::size_t offset) {
+	auto &vkCmdBuf = static_cast<VulkanNRICommandBuffer &>(commandBuffer);
+	vkCmdPushConstants(*vkCmdBuf.commandBuffer, *pipelineLayout, (VkShaderStageFlags)vk::ShaderStageFlagBits::eAll, offset, size,
+					   data);
 }
 
 void VulkanNRIGraphicsProgram::draw(NRICommandBuffer &commandBuffer, uint32_t vertexCount, uint32_t instanceCount,
