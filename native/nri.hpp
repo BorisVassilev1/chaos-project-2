@@ -254,6 +254,11 @@ class NRI {
 		PRIMITIVE_TYPE_POINTS		  = 4
 	};
 
+	enum IndexType {
+		INDEX_TYPE_UINT16 = 0,
+		INDEX_TYPE_UINT32 = 1
+	};
+
 	struct PushConstantRange {
 		uint32_t offset;
 		uint32_t size;
@@ -288,11 +293,14 @@ class NRIBuffer {
 	virtual void					bindMemory(NRIAllocation &allocation, std::size_t offset) = 0;
 	virtual void				   *map(std::size_t offset, std::size_t size)				  = 0;
 	virtual void					unmap()													  = 0;
+	virtual std::size_t getSize() const = 0;
+	virtual std::size_t getOffset() const = 0;
 
 	virtual void copyFrom(NRICommandBuffer &commandBuffer, NRIBuffer &srcBuffer, std::size_t srcOffset,
 						  std::size_t dstOffset, std::size_t size) = 0;
 
 	virtual void bindAsVertexBuffer(NRICommandBuffer &commandBuffer, uint32_t binding, std::size_t offset) = 0;
+	virtual void bindAsIndexBuffer(NRICommandBuffer &commandBuffer, std::size_t offset, NRI::IndexType indexType)	  = 0;
 };
 
 class NRIImage2D {
@@ -370,6 +378,10 @@ class NRIGraphicsProgram : virtual public NRIProgram {
    public:
 	virtual void draw(NRICommandBuffer &commandBuffer, uint32_t vertexCount, uint32_t instanceCount,
 					  uint32_t firstVertex, uint32_t firstInstance) = 0;
+
+	virtual void drawIndexed(NRICommandBuffer &commandBuffer, uint32_t indexCount, uint32_t instanceCount,
+							 uint32_t firstIndex, int32_t vertexOffset,
+							 uint32_t firstInstance) = 0;
 };
 
 class NRIComputeProgram : virtual public NRIProgram {

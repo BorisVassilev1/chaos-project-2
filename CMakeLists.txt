@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.10)
 project(vkTest)
 
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 26)
 
 if (CMAKE_GENERATOR STREQUAL "MinGW Makefiles")
 	message(DETECTED MINGWWWW)
@@ -40,6 +40,8 @@ endif()
 target_link_libraries(${PROJECT_NAME} Qt6::Core Qt6::Gui Qt6::Widgets)
 target_include_directories(${PROJECT_NAME} PRIVATE ${Qt6Gui_PRIVATE_INCLUDE_DIRS})
 target_include_directories(${PROJECT_NAME} PRIVATE lib/glm)
+target_include_directories(${PROJECT_NAME} PRIVATE lib/sdp_2023)
+
 target_compile_options(${PROJECT_NAME} PUBLIC 
 	-fsanitize=address
 )
@@ -76,3 +78,5 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE
     # path to the root directory of the project
     PROJECT_ROOT_DIR="${CMAKE_SOURCE_DIR}/"
 )
+
+

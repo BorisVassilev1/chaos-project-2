@@ -328,6 +328,10 @@ void VulkanNRIBuffer::unmap() {
 	vkUnmapMemory(allocation->getDevice(), allocation->getMemory());
 }
 
+std::size_t VulkanNRIBuffer::getSize() const { return this->size; }
+
+std::size_t VulkanNRIBuffer::getOffset() const { return this->offset; }
+
 void VulkanNRIBuffer::copyFrom(NRICommandBuffer &commandBuffer, NRIBuffer &srcBuffer, std::size_t srcOffset,
 							   std::size_t dstOffset, std::size_t size) {
 	auto &vkCmdBuf = static_cast<VulkanNRICommandBuffer &>(commandBuffer);
@@ -357,6 +361,19 @@ void VulkanNRIBuffer::bindAsVertexBuffer(NRICommandBuffer &commandBuffer, uint32
 	vk::Buffer vkBuffer = this->buffer;
 
 	vkCmdBuf.commandBuffer.bindVertexBuffers(binding, vkBuffer, vk::DeviceSize(offset));
+}
+
+vk::IndexType nriIndexType2vkIndexType[] = {
+	vk::IndexType::eUint16,
+	vk::IndexType::eUint32,
+};
+
+void VulkanNRIBuffer::bindAsIndexBuffer(NRICommandBuffer &commandBuffer, std::size_t offset, NRI::IndexType indexType) {
+	auto		 &vkCmdBuf	  = static_cast<VulkanNRICommandBuffer &>(commandBuffer);
+	vk::Buffer	  vkBuffer	  = this->buffer;
+	vk::IndexType vkIndexType = nriIndexType2vkIndexType[static_cast<int>(indexType)];
+	assert(int(vkIndexType) != -1);
+	vkCmdBuf.commandBuffer.bindIndexBuffer(vkBuffer, vk::DeviceSize(offset), vkIndexType);
 }
 
 NRI::MemoryRequirements &NRI::MemoryRequirements::setTypeRequest(MemoryTypeRequest tr) {
@@ -832,16 +849,22 @@ void VulkanNRIProgram::unbind(NRICommandBuffer &commandBuffer) {
 }
 
 void VulkanNRIProgram::setPushConstants(NRICommandBuffer &commandBuffer, const void *data, std::size_t size,
-									   std::size_t offset) {
+										std::size_t offset) {
 	auto &vkCmdBuf = static_cast<VulkanNRICommandBuffer &>(commandBuffer);
-	vkCmdPushConstants(*vkCmdBuf.commandBuffer, *pipelineLayout, (VkShaderStageFlags)vk::ShaderStageFlagBits::eAll, offset, size,
-					   data);
+	vkCmdPushConstants(*vkCmdBuf.commandBuffer, *pipelineLayout, (VkShaderStageFlags)vk::ShaderStageFlagBits::eAll,
+					   offset, size, data);
 }
 
 void VulkanNRIGraphicsProgram::draw(NRICommandBuffer &commandBuffer, uint32_t vertexCount, uint32_t instanceCount,
 									uint32_t firstVertex, uint32_t firstInstance) {
 	auto &vkCmdBuf = static_cast<VulkanNRICommandBuffer &>(commandBuffer);
 	vkCmdBuf.commandBuffer.draw(vertexCount, instanceCount, firstVertex, firstInstance);
+}
+
+void VulkanNRIGraphicsProgram::drawIndexed(NRICommandBuffer &commandBuffer, uint32_t indexCount, uint32_t instanceCount,
+										   uint32_t firstIndex, int32_t vertexOffset, uint32_t firstInstance) {
+	auto &vkCmdBuf = static_cast<VulkanNRICommandBuffer &>(commandBuffer);
+	vkCmdBuf.commandBuffer.drawIndexed(indexCount, instanceCount, firstIndex, vertexOffset, firstInstance);
 }
 
 void VulkanNRIComputeProgram::dispatch(NRICommandBuffer &commandBuffer, uint32_t groupCountX, uint32_t groupCountY,

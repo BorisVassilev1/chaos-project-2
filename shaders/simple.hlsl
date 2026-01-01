@@ -3,12 +3,16 @@ struct VSInput
 {
     float3 position : POSITION;
     float3 color : COLOR;
+	float3 normal : NORMAL;
+	float2 texCoord : TEXCOORD0;
 };
 
 struct VSOutput
 {
     float4 position : SV_POSITION;
     float3 color : COLOR;
+	float3 normal : NORMAL;
+	float2 texCoord : TEXCOORD0;
 };
 
 
@@ -30,6 +34,8 @@ VSOutput VSMain(VSInput input)
     VSOutput output;
 	output.position = pos;
     output.color = input.color;
+	output.normal = input.normal;
+	output.texCoord = input.texCoord;
     return output;
 }
 
@@ -38,10 +44,12 @@ struct PSInput
 {
     float4 position : SV_POSITION;
     float3 color : COLOR;
+	float3 normal : NORMAL;
+	float2 texCoord : TEXCOORD0;
 };
 
 [shader("pixel")]
 float4 PSMain(PSInput input) : SV_TARGET
 {
-    return float4(input.color, 1.0);
+    return float4(input.texCoord, 1.0);
 }

@@ -62,9 +62,14 @@ class VulkanNRIBuffer : public NRIBuffer {
 	void				   *map(std::size_t offset, std::size_t size) override;
 	void					unmap() override;
 
+	std::size_t getSize() const override;
+	std::size_t getOffset() const override;
+
 	void copyFrom(NRICommandBuffer &commandBuffer, NRIBuffer &srcBuffer, std::size_t srcOffset, std::size_t dstOffset,
 				  std::size_t size) override;
 	void bindAsVertexBuffer(NRICommandBuffer &commandBuffer, uint32_t binding, std::size_t offset) override;
+	void bindAsIndexBuffer(NRICommandBuffer &commandBuffer, std::size_t offset,
+						   NRI::IndexType indexType) override;
 };
 
 class VulkanNRIImage2D : public NRIImage2D {
@@ -199,6 +204,9 @@ class VulkanNRIGraphicsProgram : public VulkanNRIProgram, public NRIGraphicsProg
 
 	void draw(NRICommandBuffer &commandBuffer, uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex,
 			  uint32_t firstInstance) override;
+	void drawIndexed(NRICommandBuffer &commandBuffer, uint32_t indexCount, uint32_t instanceCount,
+					   uint32_t firstIndex, int32_t vertexOffset,
+					   uint32_t firstInstance) override;
 };
 
 class VulkanNRIComputeProgram : public VulkanNRIProgram, public NRIComputeProgram {
