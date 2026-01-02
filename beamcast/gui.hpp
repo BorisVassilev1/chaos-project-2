@@ -1,4 +1,5 @@
 #pragma once
+#include <qtmetamacros.h>
 #include <iostream>
 
 #include <QWidget>

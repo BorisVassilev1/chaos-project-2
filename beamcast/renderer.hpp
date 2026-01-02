@@ -26,7 +26,7 @@ class BeamcastRenderer : public Renderer {
 
 		mesh = std::make_unique<TriangleMesh>(nri, window.getMainQueue());
 
-		scene = std::make_unique<Scene>(nri, window.getMainQueue(), PROJECT_ROOT_DIR "/../chaos-project/export.json");
+		//scene = std::make_unique<Scene>(nri, window.getMainQueue(), PROJECT_ROOT_DIR "/export.json");
 		//scene = std::make_unique<Scene>(nri, window.getMainQueue(), PROJECT_ROOT_DIR "/../chaos-project/scenes/14/scene1.crtscene");
 
 
@@ -72,7 +72,7 @@ class BeamcastRenderer : public Renderer {
 		camera.setPushConstants(*shader, cmdBuf);
 		shader->drawIndexed(cmdBuf, 3, 1, 0, 0, 0);
 
-		scene->render(cmdBuf, *shader);
+		//scene->render(cmdBuf, *shader);
 
 		cmdBuf.endRendering();
 

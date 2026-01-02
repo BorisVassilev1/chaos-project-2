@@ -1,5 +1,6 @@
 #include "vk_nri.hpp"
 #include <qapplication.h>
+#include <qguiapplication.h>
 #include <qguiapplication_platform.h>
 #include <QtWidgets>
 #include <iostream>
@@ -14,7 +15,6 @@
 
 static const std::vector<const char *> validationLayers = {
 	"VK_LAYER_KHRONOS_validation"
-	//"VK_LAYER_NV_optimus"
 };
 
 #ifdef NDEBUG
@@ -179,7 +179,7 @@ bool checkValidationLayerSupport() {
 const char *extensions[] = {
 	"VK_KHR_surface",
 #ifdef __linux__
-	"VK_KHR_xlib_surface",
+	"VK_KHR_xlib_surface", "VK_KHR_wayland_surface",
 #elif defined(_WIN32)
 	"VK_KHR_win32_surface",
 #endif
@@ -255,9 +255,10 @@ void VulkanNRI::pickPhysicalDevice() {
 	if (physicalDevices.size() == 0) { throw std::runtime_error("Failed to find GPUs with Vulkan support!"); }
 
 	for (const auto &device : physicalDevices) {
+		std::cout << device.getProperties().deviceName << std::endl;
 		if (isDeviceSuitable(device)) {
 			physicalDevice = device;
-			break;
+			// break;
 		}
 	}
 
@@ -512,17 +513,20 @@ VulkanNRIQWindow::VulkanNRIQWindow(VulkanNRI &nri, std::unique_ptr<Renderer> &&r
 }
 
 void VulkanNRIQWindow::createSwapChain(uint32_t &width, uint32_t &height) {
+	std::cout << "creating swap chain with size: " << width << "x" << height << std::endl;
 	this->width								= width;
 	this->height							= height;
 	auto					  &nri			= static_cast<const VulkanNRI &>(this->nri);
 	vk::SurfaceCapabilitiesKHR capabilities = nri.getPhysicalDevice().getSurfaceCapabilitiesKHR(*surface);
 
 	width  = capabilities.currentExtent.width;
+	width = std::min(capabilities.maxImageExtent.width, width);
 	height = capabilities.currentExtent.height;
+	height = std::min(capabilities.maxImageExtent.height, height);
 
 	vk::SwapchainCreateInfoKHR swapChainInfo(
 		{}, *surface, capabilities.minImageCount + 1, vk::Format::eB8G8R8A8Unorm, vk::ColorSpaceKHR::eSrgbNonlinear,
-		capabilities.currentExtent, 1, vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eTransferDst,
+		{width, height}, 1, vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eTransferDst,
 		vk::SharingMode::eExclusive, 0, nullptr, vk::SurfaceTransformFlagBitsKHR::eIdentity,
 		vk::CompositeAlphaFlagBitsKHR::eOpaque, vk::PresentModeKHR::eFifo, VK_TRUE, *swapChain);
 
@@ -535,11 +539,18 @@ void VulkanNRIQWindow::createSwapChain(uint32_t &width, uint32_t &height) {
 		VK_SUCCESS) {
 		throw std::runtime_error("Failed to create Vulkan swap chain!");
 	}
-
-	swapChain			 = vk::raii::SwapchainKHR(nri.getDevice(), _swapChain);
-	auto swapChainImages = swapChain.getImages();
+	
 	this->swapChainImages.clear();
+	std::cout << "swap chain created" << std::endl;
+	vk::SwapchainKHR oldswapchain = swapChain.release();
+	vkDestroySwapchainKHR(*nri.getDevice(), oldswapchain, nullptr);
+	std::cout << "deleted old swapchain" << std::endl;
+	swapChain			 = vk::raii::SwapchainKHR(nri.getDevice(), _swapChain);
+	std::cout << "retrieving swap chain images" << std::endl;
+	auto swapChainImages = swapChain.getImages();
+	std::cout << "retrieved " << swapChainImages.size() << " swap chain images" << std::endl;
 	for (const auto &image : swapChainImages) {
+		std::cout << "creating image view for swap chain image" << std::endl;
 		vk::ImageViewCreateInfo imageViewInfo(
 			{}, image, vk::ImageViewType::e2D, vk::Format::eB8G8R8A8Unorm,
 			vk::ComponentMapping(vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity,
@@ -554,23 +565,30 @@ void VulkanNRIQWindow::createSwapChain(uint32_t &width, uint32_t &height) {
 			*commandBuffer, vk::ImageLayout::ePresentSrcKHR, vk::AccessFlagBits::eNone, vk::AccessFlagBits::eMemoryRead,
 			vk::PipelineStageFlagBits::eTopOfPipe, vk::PipelineStageFlagBits::eBottomOfPipe);
 	}
+
+	std::cout << "created swap chain with " << this->swapChainImages.size() << " images" << std::endl;
 }
 
 void VulkanNRIQWindow::drawFrame() {
 	auto &nri = static_cast<const VulkanNRI &>(this->nri);
 
+	std::cout << "waiting on fence" << std::endl;
 	auto result = nri.getDevice().waitForFences({inFlightFence}, VK_TRUE, UINT64_MAX);
+	std::cout << "fence signaled" << std::endl;
 	assert(result == vk::Result::eSuccess);
 	nri.getDevice().resetFences({inFlightFence});
 	assert(result == vk::Result::eSuccess);
 	auto imageIndex = swapChain.acquireNextImage(UINT64_MAX, *imageAvailableSemaphore, nullptr);
+	std::cout << "acquired image: " << imageIndex.value << std::endl;
 
 	swapChainImages[imageIndex.value].transitionLayout(
 		*commandBuffer, vk::ImageLayout::eColorAttachmentOptimal, vk::AccessFlagBits::eMemoryRead,
 		vk::AccessFlagBits::eColorAttachmentWrite, vk::PipelineStageFlagBits::eBottomOfPipe,
 		vk::PipelineStageFlagBits::eColorAttachmentOutput);
 
+	std::cout << "recording command buffer" << std::endl;
 	renderer->render(swapChainImages[imageIndex.value], *commandBuffer);
+	std::cout << "recorded command buffer" << std::endl;
 
 	vk::PipelineStageFlags stages = {vk::PipelineStageFlagBits::eColorAttachmentOutput};
 	presentQueue.queue.submit(vk::SubmitInfo(1, &(*imageAvailableSemaphore), &stages, 1, &*commandBuffer->commandBuffer,
@@ -581,18 +599,22 @@ void VulkanNRIQWindow::drawFrame() {
 		vk::PresentInfoKHR(1, &*renderFinishedSemaphore, 1, &*swapChain, &imageIndex.value);
 
 	// result = presentQueue.presentKHR(presentInfo);
+	std::cout << "presenting" << std::endl;
 	vk::Result res = (vk::Result)vkQueuePresentKHR(*presentQueue.queue, &*presentInfo);
 	switch (res) {
 		case vk::Result::eSuccess: break;
 		case vk::Result::eErrorOutOfDateKHR:
 		case vk::Result::eSuboptimalKHR:
+			std::cout << "swapchain recreation needed" << std::endl;
 			vkDeviceWaitIdle(*nri.getDevice());
+			std::cout << "device idle" << std::endl;
 			uint32_t width, height;
 			createSwapChain(width, height);
 			break;
 		case vk::Result::eErrorSurfaceLostKHR: break;
 		default: assert(res == vk::Result::eSuccess);
 	}
+	std::cout << "presented" << std::endl;
 
 	presentQueue.queue.waitIdle();
 }
@@ -873,15 +895,15 @@ void VulkanNRIComputeProgram::dispatch(NRICommandBuffer &commandBuffer, uint32_t
 	vkCmdBuf.commandBuffer.dispatch(groupCountX, groupCountY, groupCountZ);
 }
 
-static VkSurfaceKHR createSurface(QApplication &app, VulkanNRIQWindow &window, const VulkanNRI *nri);
-
 #ifdef __linux__
 	#include <X11/Xlib.h>
 	#include <vulkan/vulkan_xlib.h>
+	#include <wayland-client.h>
+	#include <vulkan/vulkan_wayland.h>
 
-VkSurfaceKHR createSurface(QApplication &app, VulkanNRIQWindow &window, const VulkanNRI *nri) {
+VkSurfaceKHR createX11Surface(QApplication &app, VulkanNRIQWindow &window, const VulkanNRI *nri) {
 	auto *X11App = app.nativeInterface<QNativeInterface::QX11Application>();
-	assert(X11App);
+	if (!X11App) return nullptr;
 
 	static PFN_vkCreateXlibSurfaceKHR vkCreateXlibSurfaceKHR =
 		reinterpret_cast<PFN_vkCreateXlibSurfaceKHR>(nri->getInstance().getProcAddr("vkCreateXlibSurfaceKHR"));
@@ -893,17 +915,41 @@ VkSurfaceKHR createSurface(QApplication &app, VulkanNRIQWindow &window, const Vu
 	createInfo.window = static_cast<Window>(window.winId());
 
 	VkSurfaceKHR surface;
-	if (vkCreateXlibSurfaceKHR(*nri->getInstance(), &createInfo, nullptr, &surface) != VK_SUCCESS) {
-		throw std::runtime_error("Failed to create Vulkan XCB surface!");
+	if (vkCreateXlibSurfaceKHR(*nri->getInstance(), &createInfo, nullptr, &surface) != VK_SUCCESS) { return nullptr; }
+	return surface;
+}
+
+	#undef None
+	#include <qpa/qplatformnativeinterface.h>
+
+VkSurfaceKHR createWaylandSurface(QApplication &app, VulkanNRIQWindow &window, const VulkanNRI *nri) {
+	auto *waylandApp = app.nativeInterface<QNativeInterface::QWaylandApplication>();
+	if (!waylandApp) return nullptr;
+
+	auto *pni = app.platformNativeInterface();
+
+	std::cout << "Platform: " << QGuiApplication::platformName().toStdString() << std::endl;
+
+	static PFN_vkCreateWaylandSurfaceKHR vkCreateWaylandSurfaceKHR =
+		reinterpret_cast<PFN_vkCreateWaylandSurfaceKHR>(nri->getInstance().getProcAddr("vkCreateWaylandSurfaceKHR"));
+	assert(vkCreateWaylandSurfaceKHR != nullptr);
+
+	VkWaylandSurfaceCreateInfoKHR createInfo{};
+	createInfo.sType   = VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR;
+	createInfo.display = waylandApp->display();
+	createInfo.surface = std::bit_cast<wl_surface *>(window.winId());
+
+	VkSurfaceKHR surface;
+	if (vkCreateWaylandSurfaceKHR(*nri->getInstance(), &createInfo, nullptr, &surface) != VK_SUCCESS) {
+		return nullptr;
 	}
 	return surface;
 }
 #endif
-
 #ifdef _WIN32
 	#include <windows.h>
 	#include <vulkan/vulkan_win32.h>
-VkSurfaceKHR createSurface(QApplication &app, VulkanNRIQWindow &window, const VulkanNRI *nri) {
+VkSurfaceKHR createWindowsSurface(QApplication &app, VulkanNRIQWindow &window, const VulkanNRI *nri) {
 	static PFN_vkCreateWin32SurfaceKHR vkCreateWin32SurfaceKHR =
 		reinterpret_cast<PFN_vkCreateWin32SurfaceKHR>(nri->getInstance().getProcAddr("vkCreateWin32SurfaceKHR"));
 	assert(vkCreateWin32SurfaceKHR != nullptr);
@@ -913,12 +959,27 @@ VkSurfaceKHR createSurface(QApplication &app, VulkanNRIQWindow &window, const Vu
 	createInfo.hwnd	 = reinterpret_cast<HWND>(window.winId());
 
 	VkSurfaceKHR surface;
-	if (vkCreateWin32SurfaceKHR(*nri->getInstance(), &createInfo, nullptr, &surface) != VK_SUCCESS) {
-		throw std::runtime_error("Failed to create Vulkan Win32 surface!");
-	}
+	if (vkCreateWin32SurfaceKHR(*nri->getInstance(), &createInfo, nullptr, &surface) != VK_SUCCESS) { return nullptr; }
 	return surface;
 }
 #endif
+
+static VkSurfaceKHR createSurface(QApplication &app, VulkanNRIQWindow &window, const VulkanNRI *nri) {
+	VkSurfaceKHR surface = nullptr;
+#ifdef _WIN32
+	surface = createWindowsSurface(app, window, nri);
+	if (surface) return surface;
+	throw std::runtime_error("Failed to create Vulkan surface for the current Windows windowing system!");
+#elif __linux__
+	surface = createX11Surface(app, window, nri);
+	if (surface) return surface;
+	surface = createWaylandSurface(app, window, nri);
+	if (surface) return surface;
+	throw std::runtime_error("Failed to create Vulkan surface for the current Linux windowing system!");
+#else
+	throw std::runtime_error("Unsupported platform for Vulkan surface creation!");
+#endif
+}
 
 NRIQWindow *VulkanNRI::createQWidgetSurface(QApplication &app, std::unique_ptr<Renderer> &&renderer) {
 	auto *window = new VulkanNRIQWindow(*this, std::move(renderer));

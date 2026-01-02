@@ -6,6 +6,8 @@
 #include <QtWidgets>
 #include <iostream>
 
+#include "timer.hpp"
+
 class NRIBuffer;
 class NRIAllocation;
 class NRIImage2D;
@@ -415,7 +417,7 @@ class NRIQWindow : public QWindow {
 	std::vector<resizeCallback> resizeCallbacks;
 	std::vector<keyCallback> keyCallbacks;
 	std::vector<mouseCallback> mouseCallbacks;
-	QTimer					   timer;
+	Timer					   timer;
 	NRI						  &nri;
 
    public:

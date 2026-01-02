@@ -6,3 +6,4 @@ build/
 .vs/
 build-win/
 !lib/*
+export.json

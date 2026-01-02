@@ -11,10 +11,11 @@ else()
 endif()
 set(CMAKE_PREFIX_PATH ${QT6_DIR})
 
-find_package (Qt6 REQUIRED COMPONENTS Core Gui Widgets)
+find_package (Qt6 REQUIRED COMPONENTS Core Gui Widgets GuiPrivate CorePrivate)
 
 if (UNIX)
     find_package (Vulkan REQUIRED dxc)
+	set(QT ${QT} gui-private)
 	#find_package(Slang CONFIG HINTS "$ENV{VULKAN_SDK}/lib/cmake")
 else()
     find_package (Vulkan REQUIRED)
@@ -37,16 +38,16 @@ endif()
 if (UNIX)
     target_link_libraries(${PROJECT_NAME} Vulkan::dxc_lib)
 endif()
-target_link_libraries(${PROJECT_NAME} Qt6::Core Qt6::Gui Qt6::Widgets)
+target_link_libraries(${PROJECT_NAME} Qt6::Core Qt6::Gui Qt6::Widgets Qt6::GuiPrivate Qt6::CorePrivate)
 target_include_directories(${PROJECT_NAME} PRIVATE ${Qt6Gui_PRIVATE_INCLUDE_DIRS})
 target_include_directories(${PROJECT_NAME} PRIVATE lib/glm)
 target_include_directories(${PROJECT_NAME} PRIVATE lib/sdp_2023)
 
 target_compile_options(${PROJECT_NAME} PUBLIC 
-	-fsanitize=address
+	#-fsanitize=address
 )
 target_link_options(${PROJECT_NAME} PUBLIC 
-	-fsanitize=address
+	#-fsanitize=address
 )
 set_source_files_properties(native/dx12_nri.cpp PROPERTIES
     INCLUDE_DIRECTORIES "${DirectX_INCLUDE_DIR}"

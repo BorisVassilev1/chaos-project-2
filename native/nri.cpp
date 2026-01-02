@@ -18,20 +18,28 @@ NRIProgramBuilder &NRIProgramBuilder::setPushConstantRanges(const std::vector<NR
 }
 
 NRIQWindow::NRIQWindow(NRI &nri, std::unique_ptr<Renderer> &&rendererPtr) : renderer(std::move(rendererPtr)), nri(nri) {
-	connect(&timer, &QTimer::timeout, [this]() {
+	using namespace std::chrono_literals;
+	timer = Timer([this]() {
+		std::cout << "Drawing frame..." << std::endl;
 		drawFrame();
+		std::cout << "finished drawing frame" << std::endl;
 		
 		auto elapsed = std::chrono::steady_clock::now() - lastFrameTime;
 		lastFrameTime = std::chrono::steady_clock::now();
 		float deltaTime = std::chrono::duration<float, std::chrono::seconds::period>(elapsed).count();
 		_deltaTime = deltaTime;
+		std::cout << "Frame Time: " << (deltaTime * 1000.0f) << " ms" << std::endl;
 
 		for (const auto &cb : frameCallbacks)
 			cb();
-	});
+
+	}, 0ms);
 }
 
-void NRIQWindow::startFrameTimer() { timer.start(0); }
+void NRIQWindow::startFrameTimer() { 
+	std::cout << "starting timer" << std::endl;
+	timer.start(); 
+}
 
 void NRIQWindow::addFrameCallback(const frameCallback &cb) { frameCallbacks.push_back(cb); }
 void NRIQWindow::addResizeCallback(const resizeCallback &cb) { resizeCallbacks.push_back(cb); }
