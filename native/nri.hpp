@@ -7,6 +7,7 @@
 #include <iostream>
 
 #include "timer.hpp"
+#include "../beamcast/utils.hpp"
 
 class NRIBuffer;
 class NRIAllocation;
@@ -341,8 +342,6 @@ class NRICommandBuffer {
 	virtual void begin() = 0;
 	virtual void end()	 = 0;
 
-	virtual void beginRendering(NRIImage2D &renderTarget) = 0;
-	virtual void endRendering()							  = 0;
 };
 
 class NRIProgramBuilder {
@@ -417,7 +416,7 @@ class NRIQWindow : public QWindow {
 	std::vector<resizeCallback> resizeCallbacks;
 	std::vector<keyCallback> keyCallbacks;
 	std::vector<mouseCallback> mouseCallbacks;
-	Timer					   timer;
+	QTimer					   timer;
 	NRI						  &nri;
 
    public:
@@ -437,6 +436,10 @@ class NRIQWindow : public QWindow {
 	void mouseMoveEvent(QMouseEvent *event) override;
 
 	virtual void drawFrame() = 0;
+
+	virtual void beginRendering(NRICommandBuffer &cmdBuf, NRIImage2D &renderTarget) = 0;
+	virtual void endRendering(NRICommandBuffer &cmdBuf)							  = 0;
+
 
 	auto deltaTime() const { return _deltaTime; }
 

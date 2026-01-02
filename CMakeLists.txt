@@ -45,6 +45,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE lib/sdp_2023)
 
 target_compile_options(${PROJECT_NAME} PUBLIC 
 	#-fsanitize=address
+	-g
 )
 target_link_options(${PROJECT_NAME} PUBLIC 
 	#-fsanitize=address
@@ -78,6 +79,7 @@ endif()
 target_compile_definitions(${PROJECT_NAME} PRIVATE 
     # path to the root directory of the project
     PROJECT_ROOT_DIR="${CMAKE_SOURCE_DIR}/"
+	DBG_LOG_LEVEL=2
 )
 
 

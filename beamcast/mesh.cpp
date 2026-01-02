@@ -7,29 +7,31 @@ Mesh::Mesh(NRI &nri, NRICommandQueue &q, std::span<float> vertices, std::span<fl
 
 void Mesh::init(NRI &nri, NRICommandQueue &q, std::span<float> vertices, std::span<float> colors,
 				std::span<float> normals, std::span<float> texCoords, std::span<uint32_t> indices) {
-	if(vertices.size() % 3 != 0) {
-		std::cout << "Vertices size: " << vertices.size() << std::endl;
+	if (vertices.size() % 3 != 0) {
+		dbLog(dbg::LOG_ERROR, "Vertices size: ", vertices.size(), " must be a multiple of 3");
 		throw std::runtime_error("Vertices size must be a multiple of 3");
 	}
-	if(colors.size() % 3 != 0) {
-		std::cout << "Colors size: " << colors.size() << std::endl;
+	if (colors.size() % 3 != 0) {
+		dbLog(dbg::LOG_ERROR, "Colors size: ", colors.size(), " must be a multiple of 3");
 		throw std::runtime_error("Colors size must be a multiple of 3");
 	}
-	if(normals.size() % 3 != 0) {
-		std::cout << "Normals size: " << normals.size() << std::endl;
+	if (normals.size() % 3 != 0) {
+		dbLog(dbg::LOG_ERROR, "Normals size: ", normals.size(), " must be a multiple of 3");
 		throw std::runtime_error("Normals size must be a multiple of 3");
 	}
-	if(texCoords.size() % 2 != 0) {
-		std::cout << "TexCoords size: " << texCoords.size() << std::endl;
+	if (texCoords.size() % 2 != 0) {
+		dbLog(dbg::LOG_ERROR, "TexCoords size: ", texCoords.size(), " must be a multiple of 2");
 		throw std::runtime_error("TexCoords size must be a multiple of 2");
 	}
-	if(vertices.size() / 3 != colors.size() / 3 ||
-	   vertices.size() / 3 != normals.size() / 3 ||
-	   vertices.size() / 3 != texCoords.size() / 2) {
+	if (vertices.size() / 3 != colors.size() / 3 || vertices.size() / 3 != normals.size() / 3 ||
+		vertices.size() / 3 != texCoords.size() / 2) {
+		dbLog(dbg::LOG_ERROR, "Vertices count: ", vertices.size() / 3, ", Colors count: ", colors.size() / 3,
+			  ", Normals count: ", normals.size() / 3, ", TexCoords count: ", texCoords.size() / 2,
+			  " must be the same");
 		throw std::runtime_error("Vertices, colors, normals and texCoords must have the same number of vertices");
 	}
-	if(indices.size() % 3 != 0) {
-		std::cout << "Indices size: " << indices.size() << std::endl;
+	if (indices.size() % 3 != 0) {
+		dbLog(dbg::LOG_ERROR, "Indices size: ", indices.size(), " must be a multiple of 3");
 		throw std::runtime_error("Indices size must be a multiple of 3");
 	}
 	vertexCount = vertices.size() / 3;
@@ -107,7 +109,7 @@ Mesh::Mesh(NRI &nri, NRICommandQueue &q, const rapidjson::Value &obj) {
 			}
 			texCoords.push_back(texCoordsJSON[i].GetFloat());
 			texCoords.push_back(texCoordsJSON[i + 1].GetFloat());
-			//texCoords.push_back(texCoordsJSON[i + 2].GetFloat());
+			// texCoords.push_back(texCoordsJSON[i + 2].GetFloat());
 		}
 	}
 

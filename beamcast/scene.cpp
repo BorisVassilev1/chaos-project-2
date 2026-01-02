@@ -5,6 +5,8 @@
 #include <rapidjson/document.h>
 #include <rapidjson/error/en.h>
 
+#include "utils.hpp"
+
 Scene::Scene(NRI &nri, NRICommandQueue &q, const std::string_view &filename) {
 	rapidjson::Document doc;
 	std::ifstream		 file(filename.data());
@@ -16,7 +18,10 @@ Scene::Scene(NRI &nri, NRICommandQueue &q, const std::string_view &filename) {
 	rapidjson::ParseResult ok = doc.Parse(str.c_str());
 	if(!ok) {
 		auto ind = ok.Offset();
-		std::cout << str.substr(ind > 20 ? ind - 20 : 0, 40) << std::endl;
+		dbLog(dbg::LOG_ERROR, "JSON parse error: ", GetParseError_En(ok.Code()), " (", ok.Offset(), ")\n"
+			   "In file: ", filename, "\n"
+			   "Context: ", str.substr(ind > 20 ? ind - 20 : 0, 40)
+		);
 
 		throw std::runtime_error("Failed to parse scene file: " + std::string(filename) + 
 								 " Error: " + std::string(GetParseError_En(ok.Code())) + 

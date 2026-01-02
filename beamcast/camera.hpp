@@ -31,6 +31,7 @@ class Camera {
 	}
 
 	void updateProjectionMatrix() {
+		aspectRatio		 = 1.0f;
 		projectionMatrix = glm::perspective(fov, aspectRatio, nearPlane, farPlane);
 		if (flipY) { projectionMatrix[1][1] *= -1; }
 	}
@@ -43,13 +44,14 @@ class Camera {
 		updateViewMatrix();
 		updateProjectionMatrix();
 
-		app.setOverrideCursor(Qt::BlankCursor);
+		// app.setOverrideCursor(Qt::BlankCursor);
 	}
 
 	NRI::PushConstantRange getPushConstantRange() const { return {0, sizeof(glm::mat4)}; }
-	void				   setPushConstants(NRIProgram &program, NRICommandBuffer &commandBuffer) const {
-		  glm::mat4 vpMatrix = projectionMatrix * viewMatrix;
-		  program.setPushConstants(commandBuffer, &vpMatrix, sizeof(glm::mat4), 0);
+
+	void setPushConstants(NRIProgram &program, NRICommandBuffer &commandBuffer) const {
+		glm::mat4 vpMatrix = projectionMatrix * viewMatrix;
+		program.setPushConstants(commandBuffer, &vpMatrix, sizeof(glm::mat4), 0);
 	}
 
 	void setAspectRatio(float ratio) {

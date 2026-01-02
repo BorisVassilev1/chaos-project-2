@@ -26,7 +26,7 @@ class BeamcastRenderer : public Renderer {
 
 		mesh = std::make_unique<TriangleMesh>(nri, window.getMainQueue());
 
-		//scene = std::make_unique<Scene>(nri, window.getMainQueue(), PROJECT_ROOT_DIR "/export.json");
+		scene = std::make_unique<Scene>(nri, window.getMainQueue(), PROJECT_ROOT_DIR "/export.json");
 		//scene = std::make_unique<Scene>(nri, window.getMainQueue(), PROJECT_ROOT_DIR "/../chaos-project/scenes/14/scene1.crtscene");
 
 
@@ -41,7 +41,7 @@ class BeamcastRenderer : public Renderer {
 					 .setPushConstantRanges({camera.getPushConstantRange()})
 					 .buildGraphicsProgram();
 
-		std::cout << "Renderer initialized." << std::endl;
+		dbLog(dbg::LOG_INFO, "Renderer initialized.");
 
 		window.addResizeCallback([this](QResizeEvent *event) { this->resizeEvent(event); });
 		window.addKeyCallback([this](QKeyEvent *event) { this->keyEvent(event); });
@@ -63,7 +63,7 @@ class BeamcastRenderer : public Renderer {
 		cmdBuf.begin();
 
 		shader->bind(cmdBuf);
-		cmdBuf.beginRendering(currentImage);
+		window->beginRendering(cmdBuf, currentImage);
 		// currentImage.clear(cmdBuf, glm::vec4(0.0f, glm::sin(frameCount / 50.f) * 0.5f + 0.5f, 0.0f, 1.0f));
 		// currentImage.prepareForPresent(cmdBuf);
 
@@ -72,9 +72,9 @@ class BeamcastRenderer : public Renderer {
 		camera.setPushConstants(*shader, cmdBuf);
 		shader->drawIndexed(cmdBuf, 3, 1, 0, 0, 0);
 
-		//scene->render(cmdBuf, *shader);
+		scene->render(cmdBuf, *shader);
 
-		cmdBuf.endRendering();
+		window->endRendering(cmdBuf);
 
 		currentImage.prepareForPresent(cmdBuf);
 
