@@ -31,7 +31,6 @@ class Camera {
 	}
 
 	void updateProjectionMatrix() {
-		aspectRatio		 = 1.0f;
 		projectionMatrix = glm::perspective(fov, aspectRatio, nearPlane, farPlane);
 		if (flipY) { projectionMatrix[1][1] *= -1; }
 	}
@@ -50,9 +49,11 @@ class Camera {
 	NRI::PushConstantRange getPushConstantRange() const { return {0, sizeof(glm::mat4)}; }
 
 	void setPushConstants(NRIProgram &program, NRICommandBuffer &commandBuffer) const {
-		glm::mat4 vpMatrix = projectionMatrix * viewMatrix;
+		glm::mat4 vpMatrix = getViewProjectionMatrix();
 		program.setPushConstants(commandBuffer, &vpMatrix, sizeof(glm::mat4), 0);
 	}
+
+	glm::mat4 getViewProjectionMatrix() const { return projectionMatrix * viewMatrix; }
 
 	void setAspectRatio(float ratio) {
 		aspectRatio = ratio;

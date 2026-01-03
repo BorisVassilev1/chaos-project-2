@@ -72,7 +72,7 @@ class BeamcastRenderer : public Renderer {
 		camera.setPushConstants(*shader, cmdBuf);
 		shader->drawIndexed(cmdBuf, 3, 1, 0, 0, 0);
 
-		scene->render(cmdBuf, *shader);
+		scene->render(cmdBuf, *shader, camera);
 
 		window->endRendering(cmdBuf);
 
