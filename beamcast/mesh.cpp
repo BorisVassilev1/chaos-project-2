@@ -51,6 +51,9 @@ void Mesh::init(NRI &nri, NRICommandQueue &q, std::span<float> vertices, std::sp
 
 	{
 		void	*data		   = uploadBuffer->map(0, uploadBuffer->getSize());
+		dbLog(dbg::LOG_WARNING, "vertexattributes offset: ", vertexAttributes->getOffset(),
+			  " size: ", vertexAttributes->getSize());
+		dbLog(dbg::LOG_WARNING, "index offset: ", indexBuffer->getOffset(), " size: ", indexBuffer->getSize());
 		uint8_t *vertexDataPtr = static_cast<uint8_t *>(data) + vertexAttributes->getOffset();
 		for (std::size_t i = 0; i < vertexCount; i++) {
 			std::memcpy(vertexDataPtr, &vertices[i * 3], 3 * sizeof(float));
@@ -143,7 +146,7 @@ Mesh::Mesh(NRI &nri, NRICommandQueue &q, const rapidjson::Value &obj) {
 }
 
 void Mesh::bind(NRICommandBuffer &cmdBuffer) {
-	vertexAttributes->bindAsVertexBuffer(cmdBuffer, 0, 0);
+	vertexAttributes->bindAsVertexBuffer(cmdBuffer, 0, 0, (3 + 3 + 3 + 2) * sizeof(float));
 	indexBuffer->bindAsIndexBuffer(cmdBuffer, 0, NRI::IndexType::INDEX_TYPE_UINT32);
 }
 
@@ -157,9 +160,9 @@ std::vector<NRI::VertexBinding> Mesh::getVertexBindings() const {
 		 (3 + 3 + 3 + 2) * sizeof(float),
 		 NRI::VertexInputRate::VERTEX_INPUT_RATE_VERTEX,
 		 {
-			 {0, NRI::Format::FORMAT_R32G32B32_SFLOAT, 0, NRI::VertexInputRate::VERTEX_INPUT_RATE_VERTEX, "inPosition"},
-			 {1, NRI::Format::FORMAT_R32G32B32_SFLOAT, 12, NRI::VertexInputRate::VERTEX_INPUT_RATE_VERTEX, "inColor"},
-			 {2, NRI::Format::FORMAT_R32G32B32_SFLOAT, 24, NRI::VertexInputRate::VERTEX_INPUT_RATE_VERTEX, "inNormal"},
-			 {3, NRI::Format::FORMAT_R32G32_SFLOAT, 36, NRI::VertexInputRate::VERTEX_INPUT_RATE_VERTEX, "inTexCoord"},
+			 {0, NRI::Format::FORMAT_R32G32B32_SFLOAT, 0, NRI::VertexInputRate::VERTEX_INPUT_RATE_VERTEX, "POSITION"},
+			 {1, NRI::Format::FORMAT_R32G32B32_SFLOAT, 12, NRI::VertexInputRate::VERTEX_INPUT_RATE_VERTEX, "COLOR"},
+			 {2, NRI::Format::FORMAT_R32G32B32_SFLOAT, 24, NRI::VertexInputRate::VERTEX_INPUT_RATE_VERTEX, "NORMAL"},
+			 {3, NRI::Format::FORMAT_R32G32_SFLOAT, 36, NRI::VertexInputRate::VERTEX_INPUT_RATE_VERTEX, "TEXCOORD0_"},
 		 }}};
 }

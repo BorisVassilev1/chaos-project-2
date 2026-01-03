@@ -32,7 +32,6 @@ class IsKeyPressed {
 	}
 
 	bool keyEvent(QKeyEvent *event) {
-		dbLog(dbg::LOG_INFO, "Key event: key=", event->key(), " type=", event->type());
 		if (!event) { return false; }
 		if (event->key() < 0 || event->key() >= 256) { return false; }
 		if (event->type() == QEvent::KeyPress) {

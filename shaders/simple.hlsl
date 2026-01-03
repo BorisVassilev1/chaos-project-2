@@ -4,7 +4,7 @@ struct VSInput
     float3 position : POSITION;
     float3 color : COLOR;
 	float3 normal : NORMAL;
-	float2 texCoord : TEXCOORD0;
+	float2 texCoord : TEXCOORD0_;
 };
 
 struct VSOutput
@@ -22,7 +22,7 @@ struct PushConstants
 };
 
 [[vk::push_constant]]
-PushConstants pushConstants;
+PushConstants pushConstants : register(b0);
 
 
 [shader("vertex")]
@@ -51,5 +51,5 @@ struct PSInput
 [shader("pixel")]
 float4 PSMain(PSInput input) : SV_TARGET
 {
-    return float4(input.texCoord, 1.0);
+    return float4(input.texCoord,0.0, 1.0);
 }

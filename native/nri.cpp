@@ -20,15 +20,13 @@ NRIProgramBuilder &NRIProgramBuilder::setPushConstantRanges(const std::vector<NR
 NRIQWindow::NRIQWindow(NRI &nri, std::unique_ptr<Renderer> &&rendererPtr) : renderer(std::move(rendererPtr)), nri(nri) {
 	using namespace std::chrono_literals;
 	connect(&timer, &QTimer::timeout, [this]() {
-		dbLog(dbg::LOG_INFO, "Drawing frame...");
 		drawFrame();
-		dbLog(dbg::LOG_INFO, "finished drawing frame");
-
+		
 		auto elapsed = std::chrono::steady_clock::now() - lastFrameTime;
 		lastFrameTime = std::chrono::steady_clock::now();
 		float deltaTime = std::chrono::duration<float, std::chrono::seconds::period>(elapsed).count();
 		_deltaTime = deltaTime;
-		dbLog(dbg::LOG_INFO, "Frame Time: ", (deltaTime * 1000.0f), " ms");
+		dbLogR(dbg::LOG_INFO, "Frame Time: ", (deltaTime * 1000.0f), " ms");
 
 		for (const auto &cb : frameCallbacks)
 			cb();

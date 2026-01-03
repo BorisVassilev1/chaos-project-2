@@ -257,10 +257,7 @@ class NRI {
 		PRIMITIVE_TYPE_POINTS		  = 4
 	};
 
-	enum IndexType {
-		INDEX_TYPE_UINT16 = 0,
-		INDEX_TYPE_UINT32 = 1
-	};
+	enum IndexType { INDEX_TYPE_UINT16 = 0, INDEX_TYPE_UINT32 = 1, _INDEX_TYPE_NUM = 2 };
 
 	struct PushConstantRange {
 		uint32_t offset;
@@ -296,14 +293,15 @@ class NRIBuffer {
 	virtual void					bindMemory(NRIAllocation &allocation, std::size_t offset) = 0;
 	virtual void				   *map(std::size_t offset, std::size_t size)				  = 0;
 	virtual void					unmap()													  = 0;
-	virtual std::size_t getSize() const = 0;
-	virtual std::size_t getOffset() const = 0;
+	virtual std::size_t				getSize() const											  = 0;
+	virtual std::size_t				getOffset() const										  = 0;
 
 	virtual void copyFrom(NRICommandBuffer &commandBuffer, NRIBuffer &srcBuffer, std::size_t srcOffset,
 						  std::size_t dstOffset, std::size_t size) = 0;
 
-	virtual void bindAsVertexBuffer(NRICommandBuffer &commandBuffer, uint32_t binding, std::size_t offset) = 0;
-	virtual void bindAsIndexBuffer(NRICommandBuffer &commandBuffer, std::size_t offset, NRI::IndexType indexType)	  = 0;
+	virtual void bindAsVertexBuffer(NRICommandBuffer &commandBuffer, uint32_t binding, std::size_t offset,
+									std::size_t stride)															  = 0;
+	virtual void bindAsIndexBuffer(NRICommandBuffer &commandBuffer, std::size_t offset, NRI::IndexType indexType) = 0;
 };
 
 class NRIImage2D {
@@ -341,7 +339,6 @@ class NRICommandBuffer {
 
 	virtual void begin() = 0;
 	virtual void end()	 = 0;
-
 };
 
 class NRIProgramBuilder {
@@ -381,8 +378,7 @@ class NRIGraphicsProgram : virtual public NRIProgram {
 					  uint32_t firstVertex, uint32_t firstInstance) = 0;
 
 	virtual void drawIndexed(NRICommandBuffer &commandBuffer, uint32_t indexCount, uint32_t instanceCount,
-							 uint32_t firstIndex, int32_t vertexOffset,
-							 uint32_t firstInstance) = 0;
+							 uint32_t firstIndex, int32_t vertexOffset, uint32_t firstInstance) = 0;
 };
 
 class NRIComputeProgram : virtual public NRIProgram {
@@ -404,20 +400,20 @@ class Renderer : public QWidget {
 
 class NRIQWindow : public QWindow {
    protected:
-	std::unique_ptr<Renderer> renderer;
+	std::unique_ptr<Renderer>			  renderer;
 	std::chrono::steady_clock::time_point lastFrameTime;
-	float _deltaTime = 0.0f;
+	float								  _deltaTime = 0.0f;
 
-	using frameCallback = std::function<void()>;
+	using frameCallback	 = std::function<void()>;
 	using resizeCallback = std::function<void(QResizeEvent *)>;
 	using keyCallback	 = std::function<void(QKeyEvent *)>;
 	using mouseCallback	 = std::function<void(QMouseEvent *)>;
-	std::vector<frameCallback> frameCallbacks;
+	std::vector<frameCallback>	frameCallbacks;
 	std::vector<resizeCallback> resizeCallbacks;
-	std::vector<keyCallback> keyCallbacks;
-	std::vector<mouseCallback> mouseCallbacks;
-	QTimer					   timer;
-	NRI						  &nri;
+	std::vector<keyCallback>	keyCallbacks;
+	std::vector<mouseCallback>	mouseCallbacks;
+	QTimer						timer;
+	NRI						   &nri;
 
    public:
 	NRIQWindow(NRI &nri, std::unique_ptr<Renderer> &&rendererPtr);
@@ -427,7 +423,7 @@ class NRIQWindow : public QWindow {
 	void addResizeCallback(const resizeCallback &cb);
 	void addKeyCallback(const keyCallback &cb);
 	void addMouseCallback(const mouseCallback &cb);
-	void closeEvent(QCloseEvent *event) override ;
+	void closeEvent(QCloseEvent *event) override;
 	void resizeEvent(QResizeEvent *event) override;
 	void keyPressEvent(QKeyEvent *event) override;
 	void keyReleaseEvent(QKeyEvent *event) override;
@@ -438,8 +434,7 @@ class NRIQWindow : public QWindow {
 	virtual void drawFrame() = 0;
 
 	virtual void beginRendering(NRICommandBuffer &cmdBuf, NRIImage2D &renderTarget) = 0;
-	virtual void endRendering(NRICommandBuffer &cmdBuf)							  = 0;
-
+	virtual void endRendering(NRICommandBuffer &cmdBuf)								= 0;
 
 	auto deltaTime() const { return _deltaTime; }
 

@@ -383,8 +383,10 @@ void VulkanNRIBuffer::copyFrom(NRICommandBuffer &commandBuffer, NRIBuffer &srcBu
 										   {}, {}, {bufferBarrier2}, {});
 }
 
-void VulkanNRIBuffer::bindAsVertexBuffer(NRICommandBuffer &commandBuffer, uint32_t binding, std::size_t offset) {
+void VulkanNRIBuffer::bindAsVertexBuffer(NRICommandBuffer &commandBuffer, uint32_t binding, std::size_t offset,
+										 std::size_t stride) {
 	auto &vkCmdBuf = static_cast<VulkanNRICommandBuffer &>(commandBuffer);
+	static_cast<void>(stride);
 
 	vk::Buffer vkBuffer = this->buffer;
 
@@ -567,7 +569,6 @@ VulkanNRIQWindow::VulkanNRIQWindow(VulkanNRI &nri, std::unique_ptr<Renderer> &&r
 }
 
 void VulkanNRIQWindow::createSwapChain(uint32_t &width, uint32_t &height) {
-	dbLog(dbg::LOG_DEBUG, std::format("Creating swap chain with size: ", width, "x", height));
 	this->width								= width;
 	this->height							= height;
 	auto					  &nri			= static_cast<VulkanNRI &>(this->nri);
@@ -577,6 +578,8 @@ void VulkanNRIQWindow::createSwapChain(uint32_t &width, uint32_t &height) {
 	width  = std::min(capabilities.maxImageExtent.width, width);
 	height = capabilities.currentExtent.height;
 	height = std::min(capabilities.maxImageExtent.height, height);
+
+	dbLog(dbg::LOG_INFO, "Creating swap chain with size: ", width, "x", height);
 
 	vk::SwapchainCreateInfoKHR swapChainInfo(
 		{}, *surface, capabilities.minImageCount + 1, vk::Format::eB8G8R8A8Unorm, vk::ColorSpaceKHR::eSrgbNonlinear,
@@ -595,16 +598,11 @@ void VulkanNRIQWindow::createSwapChain(uint32_t &width, uint32_t &height) {
 	}
 
 	this->swapChainImages.clear();
-	dbLog(dbg::LOG_DEBUG, "Swap chain created");
 	vk::SwapchainKHR oldswapchain = swapChain.release();
 	vkDestroySwapchainKHR(*nri.getDevice(), oldswapchain, nullptr);
-	dbLog(dbg::LOG_DEBUG, "Old swap chain destroyed");
 	swapChain = vk::raii::SwapchainKHR(nri.getDevice(), _swapChain);
-	dbLog(dbg::LOG_DEBUG, "Retrieving swap chain images");
 	auto swapChainImages = swapChain.getImages();
-	dbLog(dbg::LOG_DEBUG, "Retrieved ", swapChainImages.size(), " swap chain images");
 	for (const auto &image : swapChainImages) {
-		dbLog(dbg::LOG_DEBUG, "Creating image view for swap chain image");
 		vk::ImageViewCreateInfo imageViewInfo(
 			{}, image, vk::ImageViewType::e2D, vk::Format::eB8G8R8A8Unorm,
 			vk::ComponentMapping(vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity,
@@ -619,8 +617,6 @@ void VulkanNRIQWindow::createSwapChain(uint32_t &width, uint32_t &height) {
 			*commandBuffer, vk::ImageLayout::ePresentSrcKHR, vk::AccessFlagBits::eNone, vk::AccessFlagBits::eMemoryRead,
 			vk::PipelineStageFlagBits::eTopOfPipe, vk::PipelineStageFlagBits::eBottomOfPipe);
 	}
-
-	dbLog(dbg::LOG_DEBUG, "Created ", this->swapChainImages.size(), " swap chain images");
 
 	depthImage			 = VulkanNRIImage2D(nri, width, height, NRI::Format::FORMAT_D32_SFLOAT,
 											NRI::ImageUsage::IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT);
@@ -638,24 +634,19 @@ void VulkanNRIQWindow::createSwapChain(uint32_t &width, uint32_t &height) {
 void VulkanNRIQWindow::drawFrame() {
 	auto &nri = static_cast<const VulkanNRI &>(this->nri);
 
-	dbLog(dbg::LOG_DEBUG, "Waiting for in-flight fence");
 	auto result = nri.getDevice().waitForFences({inFlightFence}, VK_TRUE, UINT64_MAX);
-	dbLog(dbg::LOG_DEBUG, "In-flight fence signaled");
 	assert(result == vk::Result::eSuccess);
 	nri.getDevice().resetFences({inFlightFence});
 	assert(result == vk::Result::eSuccess);
 	auto imageIndex = swapChain.acquireNextImage(UINT64_MAX, *imageAvailableSemaphore, nullptr);
-	dbLog(dbg::LOG_DEBUG, "Acquired swap chain image: ", imageIndex.value);
-
+	
 	swapChainImages[imageIndex.value].transitionLayout(
 		*commandBuffer, vk::ImageLayout::eColorAttachmentOptimal, vk::AccessFlagBits::eMemoryRead,
 		vk::AccessFlagBits::eColorAttachmentWrite, vk::PipelineStageFlagBits::eBottomOfPipe,
 		vk::PipelineStageFlagBits::eColorAttachmentOutput);
 
-	dbLog(dbg::LOG_DEBUG, "Recording command buffer");
 	renderer->render(swapChainImages[imageIndex.value], *commandBuffer);
-	dbLog(dbg::LOG_DEBUG, "Recorded command buffer");
-
+	
 	vk::PipelineStageFlags stages = {vk::PipelineStageFlagBits::eColorAttachmentOutput};
 	presentQueue.queue.submit(vk::SubmitInfo(1, &(*imageAvailableSemaphore), &stages, 1, &*commandBuffer->commandBuffer,
 											 1, &(*renderFinishedSemaphore)),
@@ -665,7 +656,6 @@ void VulkanNRIQWindow::drawFrame() {
 		vk::PresentInfoKHR(1, &*renderFinishedSemaphore, 1, &*swapChain, &imageIndex.value);
 
 	// result = presentQueue.presentKHR(presentInfo);
-	dbLog(dbg::LOG_DEBUG, "Presenting");
 	vk::Result res = (vk::Result)vkQueuePresentKHR(*presentQueue.queue, &*presentInfo);
 	switch (res) {
 		case vk::Result::eSuccess: break;
@@ -680,8 +670,7 @@ void VulkanNRIQWindow::drawFrame() {
 		case vk::Result::eErrorSurfaceLostKHR: break;
 		default: assert(res == vk::Result::eSuccess);
 	}
-	dbLog(dbg::LOG_DEBUG, "Presented");
-
+	
 	presentQueue.queue.waitIdle();
 }
 

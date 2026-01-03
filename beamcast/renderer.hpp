@@ -6,6 +6,7 @@
 #include "mesh.hpp"
 #include "scene.hpp"
 
+
 class BeamcastRenderer : public Renderer {
    public:
 	int									frameCount = 0;

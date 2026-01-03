@@ -2,8 +2,9 @@
 
 #include <memory>
 #include <type_traits>
-#include <cxxabi.h>
 #include <sstream>
+#include <mutex>
+#include <string>
 
 #define JOB(name, ...)                     \
 	static int _job_##name = []() -> int { \
@@ -13,6 +14,8 @@
 
 #define STR(x) #x
 
+#include <ranges>
+#include <algorithm>
 template <auto N>
 struct string_literal {
 	constexpr string_literal(const char (&str)[N]) { std::ranges::copy_n(str, N, value); }
@@ -24,6 +27,8 @@ struct string_literal {
 
 std::string getString(std::istream &os);
 
+#if defined(__GNUC__) || defined(__clang__)
+	#include <cxxabi.h>
 template <class T>
 auto type_name() {
 	typedef typename std::remove_reference<T>::type TR;
@@ -49,6 +54,22 @@ template <class T>
 inline auto type_name(T *v) {
 	return typename_demangle(typeid(v).name());
 }
+#else
+template <class T>
+auto type_name() {
+	typedef typename std::remove_reference<T>::type TR;
+	std::string										r = typeid(TR).name();
+	if (std::is_const<TR>::value) r += " const";
+	if (std::is_volatile<TR>::value) r += " volatile";
+	if (std::is_lvalue_reference<T>::value) r += "&";
+	else if (std::is_rvalue_reference<T>::value) r += "&&";
+	return r;
+}
+template <class T>
+inline auto type_name(T *v) {
+	return typeid(v).name();
+}
+#endif
 
 /**
  * @brief SpinLock, copy pasta from lectures
@@ -140,4 +161,3 @@ bool inline f_dbLog(std::ostream &out, Types... args) {
 	}
 
 }	  // namespace dbg
-

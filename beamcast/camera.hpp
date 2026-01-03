@@ -10,7 +10,7 @@
 
 class Camera {
    private:
-	glm::vec3 position = glm::vec3(0.0f, 0.0f, 0.0f);
+	glm::vec3 position = glm::vec3(0.0f, 10.0f, 0.0f);
 	glm::vec3 rotation = glm::vec3(0.0f, 0.0f, 0.0f);
 
 	glm::mat4 viewMatrix	   = glm::mat4(1.0f);
