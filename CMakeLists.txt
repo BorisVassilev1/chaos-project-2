@@ -22,7 +22,7 @@ else()
     find_package (Vulkan REQUIRED)
 endif()
 
-file(GLOB SOURCE_FILES native/*.cpp beamcast/*.cpp)
+file(GLOB SOURCE_FILES native/*.cpp beamcast/*.cpp engine/*.cpp)
 
 add_subdirectory( lib/glm )
 

@@ -272,13 +272,46 @@ class NRI {
 	virtual void synchronize() const = 0;
 };
 
-inline constexpr NRI::BufferUsage operator|(NRI::BufferUsage a, NRI::BufferUsage b) {
+constexpr NRI::BufferUsage operator|(NRI::BufferUsage a, NRI::BufferUsage b) {
 	return static_cast<NRI::BufferUsage>(static_cast<int>(a) | static_cast<int>(b));
 }
 
-inline constexpr NRI::ImageUsage operator|(NRI::ImageUsage a, NRI::ImageUsage b) {
+constexpr NRI::ImageUsage operator|(NRI::ImageUsage a, NRI::ImageUsage b) {
 	return static_cast<NRI::ImageUsage>(static_cast<int>(a) | static_cast<int>(b));
 }
+
+/// https://vulkan.org/user/pages/09.events/vulkanised-2023/vulkanised_2023_setting_up_a_bindless_rendering_pipeline.pdf
+/// 2 bits for resource type,
+/// 1 bit for writability,
+/// ?? bits for versions??
+/// 29 bits for index within the type -> too much
+class NRIResourceHandle final {
+	uint32_t handle;
+
+	NRIResourceHandle(uint32_t h) : handle(h) {}
+
+   public:
+	enum ResourceType {
+		RESOURCE_TYPE_IMAGE_SAMPLER	 = 0,
+		RESOURCE_TYPE_STORAGE_IMAGE	 = 1,
+		RESOURCE_TYPE_UNIFORM_BUFFER = 2,
+		RESOURCE_TYPE_STORAGE_BUFFER = 3,
+	};
+	NRIResourceHandle(ResourceType type, bool writable, uint32_t index);
+	NRIResourceHandle() {}
+
+	ResourceType getType() const;
+	bool		 isWritable() const;
+	uint32_t	 getIndex() const { return handle & 0x1FFFFFFF; }
+
+	static NRIResourceHandle INVALID_HANDLE;
+
+	bool operator==(const NRIResourceHandle &other) const = default;
+	bool operator!=(const NRIResourceHandle &other) const = default;
+	NRIResourceHandle(const NRIResourceHandle &other)			 = default;
+	NRIResourceHandle &operator=(const NRIResourceHandle &other) = default;
+
+};
 
 class NRIAllocation {
    public:
@@ -314,8 +347,13 @@ class NRIImage2D {
 	virtual void clear(NRICommandBuffer &commandBuffer, glm::vec4 color) = 0;
 	virtual void prepareForPresent(NRICommandBuffer &commandBuffer)		 = 0;
 
+	virtual void copyFrom(NRICommandBuffer &commandBuffer, NRIBuffer &srcBuffer, std::size_t srcOffset,
+						  uint32_t srcRowPitch) = 0;
+
 	virtual uint32_t getWidth() const  = 0;
 	virtual uint32_t getHeight() const = 0;
+
+	virtual NRIResourceHandle getImageViewHandle() = 0;
 };
 
 class NRICommandPool {

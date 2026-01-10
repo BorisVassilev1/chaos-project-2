@@ -1,4 +1,5 @@
 #include "mesh.hpp"
+#include "../engine/buffer_utils.hpp"
 
 Mesh::Mesh(NRI &nri, NRICommandQueue &q, std::span<float> vertices, std::span<float> colors, std::span<float> normals,
 		   std::span<float> texCoords, std::span<uint32_t> indices) {

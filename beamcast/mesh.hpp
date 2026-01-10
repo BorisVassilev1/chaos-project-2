@@ -6,8 +6,6 @@
 #include <rapidjson/document.h>
 
 #include "../native/nri.hpp"
-#include "buffer_utils.hpp"
-
 class Mesh {
    protected:
 	std::unique_ptr<NRIAllocation> memory;

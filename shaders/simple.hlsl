@@ -48,8 +48,13 @@ struct PSInput
 	float2 texCoord : TEXCOORD0;
 };
 
+[[vk::binding(0, 0)]]
+Sampler2D<float4> textures[100] : register(t0);
+
 [shader("pixel")]
 float4 PSMain(PSInput input) : SV_TARGET
 {
-    return float4(input.texCoord,0.0, 1.0);
+	// use textures[0] for demonstration
+	float4 texColor = textures[0].Sample(input.texCoord);
+    return float4(texColor.xyz, 1.0);
 }

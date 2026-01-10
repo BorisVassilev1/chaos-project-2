@@ -1,5 +1,10 @@
 #include "nri.hpp"
 
+NRIResourceHandle::NRIResourceHandle(ResourceType type, bool writable, uint32_t index)
+	: handle((type << 30) | (static_cast<uint32_t>(writable) << 29) | (index & 0x1FFFFFFF)) {}
+
+NRIResourceHandle NRIResourceHandle::INVALID_HANDLE = NRIResourceHandle(0xFFFFFFFF);
+
 NRIProgramBuilder &NRIProgramBuilder::addShaderModule(const NRI::ShaderCreateInfo &shaderInfo) {
 	shaderStagesInfo.push_back(shaderInfo);
 	return *this;

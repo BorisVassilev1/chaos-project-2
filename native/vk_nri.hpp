@@ -15,6 +15,8 @@
 #include "vulkan/vulkan.hpp"
 
 class VulkanNRI;
+class VulkanNRIBuffer;
+class VulkanNRIImage2D;
 
 /// A helper class to manage ownership of an object or a reference to an object
 /// template arguments can be for example: <vk::raii::Buffer, vk::Buffer>
@@ -37,6 +39,28 @@ class OwnerOrNot {
 			return std::get<NotOwner>(data);
 		}
 	}
+};
+
+class VulkanDescriptorAllocator {
+	VulkanNRI					 &nri;
+	vk::raii::DescriptorPool	  pool;
+	vk::raii::DescriptorSetLayout descriptorSetLayout;
+	vk::raii::DescriptorSet		  bigDescriptorSet;
+
+	int currentBufferDescriptorIndex = 0;
+	int currentImageDescriptorIndex	 = 0;
+
+   public:
+	VulkanDescriptorAllocator(VulkanNRI &nri);
+
+	NRIResourceHandle addUniformBufferDescriptor(VulkanNRIBuffer &buffer);
+	NRIResourceHandle addSamplerImageDescriptor(VulkanNRIImage2D &image);
+
+	auto	   &getDescriptorSet() { return bigDescriptorSet; }
+	const auto &getDescriptorSet() const { return bigDescriptorSet; }
+
+	auto &getDescriptorSetLayout() { return descriptorSetLayout; }
+	const auto &getDescriptorSetLayout() const { return descriptorSetLayout; }
 };
 
 class VulkanNRIAllocation : public NRIAllocation {
@@ -70,6 +94,7 @@ class VulkanNRIBuffer : public NRIBuffer {
 
 	std::size_t getSize() const override;
 	std::size_t getOffset() const override;
+	auto	   &getBuffer() { return buffer; }
 
 	void copyFrom(NRICommandBuffer &commandBuffer, NRIBuffer &srcBuffer, std::size_t srcOffset, std::size_t dstOffset,
 				  std::size_t size) override;
@@ -79,12 +104,15 @@ class VulkanNRIBuffer : public NRIBuffer {
 };
 
 class VulkanNRIImage2D : public NRIImage2D {
+	VulkanNRI							  *nri;
 	OwnerOrNot<vk::raii::Image, vk::Image> image;
 	vk::raii::Device					  *device;
 	vk::ImageLayout						   layout;
 	vk::Format							   format;
 	vk::raii::ImageView					   imageView;
 	vk::ImageAspectFlags				   aspectFlags;
+	vk::raii::Sampler					   sampler;
+	NRIResourceHandle					   imageViewHandle = NRIResourceHandle::INVALID_HANDLE;
 
 	uint32_t width;
 	uint32_t height;
@@ -95,24 +123,28 @@ class VulkanNRIImage2D : public NRIImage2D {
 	void transitionLayout(NRICommandBuffer &commandBuffer, vk::ImageLayout newLayout, vk::AccessFlags srcAccess,
 						  vk::AccessFlags dstAccess, vk::PipelineStageFlags srcStage, vk::PipelineStageFlags dstStage);
 
-	VulkanNRIImage2D(vk::raii::Image &&img, vk::ImageLayout layout, vk::Format fmt, vk::raii::Device &dev,
-					 vk::raii::ImageView &&imgView, uint32_t width, uint32_t height)
-		: image(std::move(img)),
+	VulkanNRIImage2D(VulkanNRI &nri, vk::raii::Image &&img, vk::ImageLayout layout, vk::Format fmt,
+					 vk::raii::Device &dev, vk::raii::ImageView &&imgView, uint32_t width, uint32_t height)
+		: nri(&nri),
+		  image(std::move(img)),
 		  device(&dev),
 		  layout(layout),
 		  format(fmt),
 		  imageView(std::move(imgView)),
 		  aspectFlags(getAspectFlags(fmt)),
+		  sampler(nullptr),
 		  width(width),
 		  height(height) {}
-	VulkanNRIImage2D(vk::Image img, vk::ImageLayout layout, vk::Format fmt, vk::raii::Device &dev,
+	VulkanNRIImage2D(VulkanNRI &nri, vk::Image img, vk::ImageLayout layout, vk::Format fmt, vk::raii::Device &dev,
 					 vk::raii::ImageView &&imgView, uint32_t width, uint32_t height)
-		: image(img),
+		: nri(&nri),
+		  image(img),
 		  device(&dev),
 		  layout(layout),
 		  format(fmt),
 		  imageView(std::move(imgView)),
 		  aspectFlags(getAspectFlags(fmt)),
+		  sampler(nullptr),
 		  width(width),
 		  height(height) {}
 
@@ -127,12 +159,19 @@ class VulkanNRIImage2D : public NRIImage2D {
 	void clear(NRICommandBuffer &commandBuffer, glm::vec4 color) override;
 
 	void prepareForPresent(NRICommandBuffer &commandBuffer) override;
+	void copyFrom(NRICommandBuffer &commandBuffer, NRIBuffer &srcBuffer, std::size_t srcOffset,
+				  uint32_t srcRowPitch) override;
 
 	auto	   &getImageView() { return imageView; }
 	const auto &getImageView() const { return imageView; }
 
+	auto	   &getSampler() { return sampler; }
+	const auto &getSampler() const { return sampler; }
+
 	uint32_t getWidth() const override { return width; }
 	uint32_t getHeight() const override { return height; }
+
+	NRIResourceHandle getImageViewHandle() override;
 };
 
 class VulkanNRICommandPool : public NRICommandPool {
@@ -194,13 +233,13 @@ class VulkanNRIProgramBuilder : public NRIProgramBuilder {
 
 class VulkanNRIProgram : virtual NRIProgram {
    private:
+	VulkanNRI				&nri;
 	vk::raii::Pipeline		 pipeline;
 	vk::raii::PipelineLayout pipelineLayout;
 
    public:
-	VulkanNRIProgram();
-	VulkanNRIProgram(vk::raii::Pipeline &&ppln, vk::raii::PipelineLayout &&layout)
-		: pipeline(std::move(ppln)), pipelineLayout(std::move(layout)) {}
+	VulkanNRIProgram(VulkanNRI &nri, vk::raii::Pipeline &&ppln, vk::raii::PipelineLayout &&layout)
+		: nri(nri), pipeline(std::move(ppln)), pipelineLayout(std::move(layout)) {}
 
 	void bind(NRICommandBuffer &commandBuffer) override;
 	void unbind(NRICommandBuffer &commandBuffer) override;
@@ -269,7 +308,8 @@ class VulkanNRI : public NRI {
 	vk::raii::PhysicalDevice physicalDevice;
 	vk::raii::Device		 device;
 
-	VulkanNRICommandPool defaultCommandPool;
+	VulkanNRICommandPool					 defaultCommandPool;
+	std::optional<VulkanDescriptorAllocator> descriptorAllocator;
 
 	void createInstance();
 	void pickPhysicalDevice();
@@ -297,6 +337,10 @@ class VulkanNRI : public NRI {
 	vk::raii::Device			   &getDevice() { return device; }
 	const vk::raii::PhysicalDevice &getPhysicalDevice() const { return physicalDevice; }
 	NRICommandPool				   &getDefaultCommandPool() override { return defaultCommandPool; }
+	VulkanDescriptorAllocator	   &getDescriptorAllocator() {
+		 assert(descriptorAllocator.has_value());
+		 return descriptorAllocator.value();
+	}
 
 	bool shouldFlipY() const override { return true; }
 	void synchronize() const override { device.waitIdle(); }

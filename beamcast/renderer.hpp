@@ -1,11 +1,12 @@
 #pragma once
 #include <qnamespace.h>
 #include "../native/nri.hpp"
-#include "buffer_utils.hpp"
 #include "camera.hpp"
 #include "iskeypressed.hpp"
 #include "mesh.hpp"
 #include "scene.hpp"
+
+#include "../engine/image_utils.hpp"
 
 class BeamcastRenderer : public Renderer {
    public:
@@ -14,6 +15,10 @@ class BeamcastRenderer : public Renderer {
 	Camera								camera;
 	IsKeyPressed						isKeyPressed;
 	std::unique_ptr<Mesh>				mesh;
+
+	std::unique_ptr<NRIImage2D>	   texture;
+	std::unique_ptr<NRIAllocation> textureMemory;
+	NRIResourceHandle			   textureHandle;
 
 	std::unique_ptr<Scene> scene;
 
@@ -30,6 +35,10 @@ class BeamcastRenderer : public Renderer {
 		scene = std::make_unique<Scene>(nri, window.getMainQueue(), PROJECT_ROOT_DIR "/export.json");
 		// scene = std::make_unique<Scene>(nri, window.getMainQueue(), PROJECT_ROOT_DIR
 		// "/../chaos-project/scenes/14/scene1.crtscene");
+
+		std::tie(texture, textureMemory) =
+			createImage2D(PROJECT_ROOT_DIR "textures/bricks/albedo.jpg", nri, window.getMainQueue());
+		textureHandle = texture->getImageViewHandle();
 
 		auto shaderBuilder = nri.createProgramBuilder();
 		shader			   = shaderBuilder->setVertexBindings(mesh->getVertexBindings())
