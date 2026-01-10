@@ -21,21 +21,27 @@ NRIQWindow::NRIQWindow(NRI &nri, std::unique_ptr<Renderer> &&rendererPtr) : rend
 	using namespace std::chrono_literals;
 	connect(&timer, &QTimer::timeout, [this]() {
 		drawFrame();
-		
-		auto elapsed = std::chrono::steady_clock::now() - lastFrameTime;
-		lastFrameTime = std::chrono::steady_clock::now();
+
+		auto elapsed	= std::chrono::steady_clock::now() - lastFrameTime;
+		lastFrameTime	= std::chrono::steady_clock::now();
 		float deltaTime = std::chrono::duration<float, std::chrono::seconds::period>(elapsed).count();
-		_deltaTime = deltaTime;
-		dbLogR(dbg::LOG_INFO, "Frame Time: ", (deltaTime * 1000.0f), " ms");
+		_deltaTime		= deltaTime;
+		++framesSinceLastPrint;
+
+		if (lastFrameTime - lastPrintTime >= 1s) {
+			lastPrintTime = lastFrameTime;
+			dbLogR(dbg::LOG_INFO, "FPS: ", framesSinceLastPrint, "Last Delta Time: ", (deltaTime * 1000.0f), " ms");
+			framesSinceLastPrint = 0;
+		}
 
 		for (const auto &cb : frameCallbacks)
 			cb();
 	});
 }
 
-void NRIQWindow::startFrameTimer() { 
+void NRIQWindow::startFrameTimer() {
 	dbLog(dbg::LOG_INFO, "starting timer");
-	timer.start(); 
+	timer.start();
 }
 
 void NRIQWindow::addFrameCallback(const frameCallback &cb) { frameCallbacks.push_back(cb); }

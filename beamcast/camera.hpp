@@ -20,7 +20,8 @@ class Camera {
 	float	  nearPlane		   = 0.01f;
 	float	  farPlane		   = 1000.0f;
 
-	bool flipY = false;
+	const bool flipY		  = false;
+	bool	   controlsActive = true;
 
 	void updateViewMatrix() {
 		viewMatrix = glm::translate(glm::mat4x4(1), position);
@@ -65,6 +66,8 @@ class Camera {
 	}
 
 	void update(IsKeyPressed ikp, float deltaTime) {
+		if (!controlsActive) return;
+
 		const float cameraSpeed = 5.0f;		// units per second
 
 		if (rotation.x > M_PI / 2) {
@@ -96,16 +99,23 @@ class Camera {
 	}
 
 	void handleMouseEvent(QMouseEvent *event) {
-		if (event->type() == QEvent::MouseMove) {
-			QPoint	center = app.primaryScreen()->geometry().center();
+		if (controlsActive && event->type() == QEvent::MouseMove) {
+			auto *currWindow = app.focusWindow();
+			if (!currWindow) return;
+
+			QPoint	center = app.focusWindow()->geometry().center();
+			center = currWindow->mapToGlobal(center);
 			QPointF delta  = event->globalPosition() - center;
 
 			const float sensitivity = 0.001f;
 			rotation.y -= delta.x() * sensitivity;
 			rotation.x -= delta.y() * sensitivity;
 
+			
 			QCursor::setPos(center);
 			updateViewMatrix();
 		}
 	}
+
+	void toggleControls() { controlsActive = !controlsActive; }
 };

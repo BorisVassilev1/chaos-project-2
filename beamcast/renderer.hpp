@@ -1,11 +1,11 @@
 #pragma once
+#include <qnamespace.h>
 #include "../native/nri.hpp"
 #include "buffer_utils.hpp"
 #include "camera.hpp"
 #include "iskeypressed.hpp"
 #include "mesh.hpp"
 #include "scene.hpp"
-
 
 class BeamcastRenderer : public Renderer {
    public:
@@ -28,12 +28,11 @@ class BeamcastRenderer : public Renderer {
 		mesh = std::make_unique<TriangleMesh>(nri, window.getMainQueue());
 
 		scene = std::make_unique<Scene>(nri, window.getMainQueue(), PROJECT_ROOT_DIR "/export.json");
-		//scene = std::make_unique<Scene>(nri, window.getMainQueue(), PROJECT_ROOT_DIR "/../chaos-project/scenes/14/scene1.crtscene");
-
+		// scene = std::make_unique<Scene>(nri, window.getMainQueue(), PROJECT_ROOT_DIR
+		// "/../chaos-project/scenes/14/scene1.crtscene");
 
 		auto shaderBuilder = nri.createProgramBuilder();
-		shader = shaderBuilder
-					 ->setVertexBindings(mesh->getVertexBindings())
+		shader			   = shaderBuilder->setVertexBindings(mesh->getVertexBindings())
 					 .addShaderModule(
 						 {PROJECT_ROOT_DIR "shaders/simple.hlsl", "VSMain", NRI::ShaderType::SHADER_TYPE_VERTEX})
 					 .addShaderModule(
@@ -53,7 +52,11 @@ class BeamcastRenderer : public Renderer {
 		camera.setAspectRatio(static_cast<float>(event->size().width()) / static_cast<float>(event->size().height()));
 	}
 
-	void keyEvent(QKeyEvent *event) { isKeyPressed.keyEvent(event); }
+	void keyEvent(QKeyEvent *event) {
+		isKeyPressed.keyEvent(event);
+		if (event->key() == Qt::Key_Escape && event->type() == QEvent::KeyPress) window->close();
+		if (event->key() == Qt::Key_1 && event->type() == QEvent::KeyPress) camera.toggleControls();
+	}
 
 	void mouseEvent(QMouseEvent *event) { camera.handleMouseEvent(event); }
 

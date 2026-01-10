@@ -11,6 +11,7 @@ else()
 endif()
 set(CMAKE_PREFIX_PATH ${QT6_DIR})
 
+set(QT_NO_PRIVATE_MODULE_WARNING ON)
 find_package (Qt6 REQUIRED COMPONENTS Core Gui Widgets GuiPrivate CorePrivate)
 
 if (UNIX)

@@ -402,7 +402,9 @@ class NRIQWindow : public QWindow {
    protected:
 	std::unique_ptr<Renderer>			  renderer;
 	std::chrono::steady_clock::time_point lastFrameTime;
-	float								  _deltaTime = 0.0f;
+	std::chrono::steady_clock::time_point lastPrintTime;
+	int									  framesSinceLastPrint = 0;
+	float								  _deltaTime		   = 0.0f;
 
 	using frameCallback	 = std::function<void()>;
 	using resizeCallback = std::function<void(QResizeEvent *)>;
