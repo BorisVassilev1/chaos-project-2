@@ -25,6 +25,13 @@ struct string_literal {
 	constexpr operator const char *() const { return value; }
 };
 
+struct string_hash {
+	using is_transparent = void;
+	[[nodiscard]] size_t operator()(const char *txt) const { return std::hash<std::string_view>{}(txt); }
+	[[nodiscard]] size_t operator()(std::string_view txt) const { return std::hash<std::string_view>{}(txt); }
+	[[nodiscard]] size_t operator()(const std::string &txt) const { return std::hash<std::string>{}(txt); }
+};
+
 std::string getString(std::istream &os);
 
 #if defined(__GNUC__) || defined(__clang__)

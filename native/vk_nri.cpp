@@ -278,11 +278,31 @@ void VulkanNRI::createLogicalDevice() {
 	float					  prio = 1.0f;
 	vk::DeviceQueueCreateInfo queueCreateInfo({}, indices.graphicsFamily.value(), 1, &prio);
 
-	vk::PhysicalDeviceFeatures deviceFeatures{};
-
-	vk::PhysicalDeviceDescriptorIndexingFeatures descriptorIndexingFeatures{};
-
-	vk::PhysicalDeviceDynamicRenderingFeatures dynamicRenderingFeature(VK_TRUE, &descriptorIndexingFeatures);
+	vk::PhysicalDeviceFeatures					 deviceFeatures{};
+	vk::PhysicalDeviceDescriptorIndexingFeatures descriptorIndexingFeatures(
+		VK_TRUE,	 // shaderInputAttachmentArrayDynamicIndexing
+		VK_TRUE,	 // shaderUniformTexelBufferArrayDynamicIndexing
+		VK_TRUE,	 // shaderStorageTexelBufferArrayDynamicIndexing
+		VK_TRUE,	 // shaderUniformBufferArrayNonUniformIndexing
+		VK_TRUE,	 // shaderStorageBufferArrayNonUniformIndexing
+		VK_TRUE,	 // shaderSampledImageArrayNonUniformIndexing
+		VK_TRUE,	 // shaderStorageImageArrayNonUniformIndexing
+		VK_TRUE,	 // shaderInputAttachmentArrayNonUniformIndexing
+		VK_TRUE,	 // shaderUniformTexelBufferArrayNonUniformIndexing
+		VK_TRUE,	 // shaderStorageTexelBufferArrayNonUniformIndexing
+		VK_TRUE,	 // descriptorBindingUniformBufferUpdateAfterBind
+		VK_TRUE,	 // descriptorBindingStorageBufferUpdateAfterBind
+		VK_TRUE,	 // descriptorBindingSampledImageUpdateAfterBind
+		VK_TRUE,	 // descriptorBindingStorageImageUpdateAfterBind
+		VK_TRUE,	 // descriptorBindingStorageTexelBufferUpdateAfterBind
+		VK_TRUE,	 // descriptorBindingUniformTexelBufferUpdateAfterBind
+		VK_TRUE,	 // descriptorBindingUpdateUnusedWhilePending
+		VK_TRUE,	 // descriptorBindingPartiallyBound
+		VK_TRUE,	 // descriptorBindingVariableDescriptorCount
+		VK_TRUE,		 // runtimeDescriptorArray
+		nullptr
+	);
+	vk::PhysicalDeviceDynamicRenderingFeatures	 dynamicRenderingFeature(VK_TRUE, &descriptorIndexingFeatures);
 
 	vk::DeviceCreateInfo createInfo(
 		{}, 1, &queueCreateInfo, enableValidationLayers ? static_cast<uint32_t>(validationLayers.size()) : 0,
@@ -335,8 +355,17 @@ VulkanDescriptorAllocator::VulkanDescriptorAllocator(VulkanNRI &nri)
 									   nullptr),
 	};
 
-	vk::DescriptorSetLayoutCreateInfo layoutInfo(vk::DescriptorSetLayoutCreateFlagBits::eUpdateAfterBindPool,
+	vk::DescriptorSetLayoutCreateInfo layoutInfo(vk::DescriptorSetLayoutCreateFlagBits::eUpdateAfterBindPool |
+													 vk::DescriptorSetLayoutCreateFlagBits::eUpdateAfterBindPoolEXT,
 												 samplerBindings.size(), samplerBindings.data());
+
+	const vk::DescriptorBindingFlags bindingFlags = vk::DescriptorBindingFlagBits::eUpdateAfterBind;
+
+	const vk::DescriptorBindingFlags bindingFlagsArr[] = {bindingFlags, bindingFlags, bindingFlags, bindingFlags};
+
+	vk::DescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsInfo(samplerBindings.size(), bindingFlagsArr);
+	layoutInfo.pNext = &bindingFlagsInfo;
+
 	descriptorSetLayout = vk::raii::DescriptorSetLayout(nri.getDevice(), layoutInfo);
 	vk::DescriptorSetAllocateInfo allocInfo(pool, 1, &*descriptorSetLayout);
 	auto						  descriptorSets = nri.getDevice().allocateDescriptorSets(allocInfo);
@@ -362,7 +391,7 @@ NRIResourceHandle VulkanDescriptorAllocator::addSamplerImageDescriptor(VulkanNRI
 	vk::DescriptorImageInfo imageInfo(*(image.getSampler()), *(image.getImageView()),
 									  vk::ImageLayout::eShaderReadOnlyOptimal);
 
-	vk::WriteDescriptorSet descriptorWrite(bigDescriptorSet, descriptorIndex, 0, 1,
+	vk::WriteDescriptorSet descriptorWrite(bigDescriptorSet, 0, descriptorIndex, 1,
 										   vk::DescriptorType::eCombinedImageSampler, &imageInfo, nullptr, nullptr);
 
 	(*nri.getDevice()).updateDescriptorSets(1, &descriptorWrite, 0, nullptr);
@@ -385,7 +414,6 @@ VulkanNRIAllocation::VulkanNRIAllocation(VulkanNRI &nri, NRI::MemoryRequirements
 	uint32_t						   memoryTypeIndex = -1;
 	for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
 		if ((memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
-			dbLog(dbg::LOG_DEBUG, "Found memory type index: ", i);
 			memoryTypeIndex = i;
 			break;
 		}
@@ -576,6 +604,7 @@ NRIResourceHandle VulkanNRIImage2D::getImageViewHandle() {
 	if (imageViewHandle == NRIResourceHandle::INVALID_HANDLE)
 		imageViewHandle =
 			nri->getDescriptorAllocator().addSamplerImageDescriptor(*const_cast<VulkanNRIImage2D *>(this));
+	assert(imageViewHandle != NRIResourceHandle::INVALID_HANDLE);
 	return imageViewHandle;
 }
 
@@ -846,14 +875,12 @@ std::pair<std::vector<vk::raii::ShaderModule>, std::vector<vk::PipelineShaderSta
 
 	sessionDesc.targetCount									  = 1;
 	sessionDesc.targets										  = &spirvTraget;
-	std::array<slang::CompilerOptionEntry, 2> compilerOptions = {
-		{
-			// this gets rid of warnings about binding locations overlapping
+	std::array<slang::CompilerOptionEntry, 2> compilerOptions = {{
+		// this gets rid of warnings about binding locations overlapping
 		{slang::CompilerOptionName::VulkanBindShiftAll, {slang::CompilerOptionValueKind::Int, 0, 0, nullptr, nullptr}},
-		}
-	};
-	sessionDesc.compilerOptionEntryCount = uint32_t(compilerOptions.size());
-	sessionDesc.compilerOptionEntries	  = compilerOptions.data();
+	}};
+	sessionDesc.compilerOptionEntryCount					  = uint32_t(compilerOptions.size());
+	sessionDesc.compilerOptionEntries						  = compilerOptions.data();
 
 	sessionDesc.searchPathCount = 0;
 

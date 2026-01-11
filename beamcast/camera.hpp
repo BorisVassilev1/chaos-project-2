@@ -47,7 +47,7 @@ class Camera {
 		// app.setOverrideCursor(Qt::BlankCursor);
 	}
 
-	NRI::PushConstantRange getPushConstantRange() const { return {0, sizeof(glm::mat4)}; }
+	static NRI::PushConstantRange getPushConstantRange() { return {0, sizeof(glm::mat4)}; }
 
 	void setPushConstants(NRIProgram &program, NRICommandBuffer &commandBuffer) const {
 		glm::mat4 vpMatrix = getViewProjectionMatrix();

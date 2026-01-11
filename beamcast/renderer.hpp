@@ -47,7 +47,7 @@ class BeamcastRenderer : public Renderer {
 					 .addShaderModule(
 						 {PROJECT_ROOT_DIR "shaders/simple.hlsl", "PSMain", NRI::ShaderType::SHADER_TYPE_FRAGMENT})
 					 .setPrimitiveType(NRI::PrimitiveType::PRIMITIVE_TYPE_TRIANGLES)
-					 .setPushConstantRanges({camera.getPushConstantRange()})
+					 .setPushConstantRanges({Scene::getPushConstantRange()})
 					 .buildGraphicsProgram();
 
 		dbLog(dbg::LOG_INFO, "Renderer initialized.");

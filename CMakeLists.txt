@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.10)
 project(vkTest)
 
-set(CMAKE_CXX_STANDARD 26)
+set(CMAKE_CXX_STANDARD 23)
 
 if (CMAKE_GENERATOR STREQUAL "MinGW Makefiles")
 	message(DETECTED MINGWWWW)

@@ -52,9 +52,6 @@ void Mesh::init(NRI &nri, NRICommandQueue &q, std::span<float> vertices, std::sp
 
 	{
 		void	*data		   = uploadBuffer->map(0, uploadBuffer->getSize());
-		dbLog(dbg::LOG_WARNING, "vertexattributes offset: ", vertexAttributes->getOffset(),
-			  " size: ", vertexAttributes->getSize());
-		dbLog(dbg::LOG_WARNING, "index offset: ", indexBuffer->getOffset(), " size: ", indexBuffer->getSize());
 		uint8_t *vertexDataPtr = static_cast<uint8_t *>(data) + vertexAttributes->getOffset();
 		for (std::size_t i = 0; i < vertexCount; i++) {
 			std::memcpy(vertexDataPtr, &vertices[i * 3], 3 * sizeof(float));
@@ -117,6 +114,23 @@ Mesh::Mesh(NRI &nri, NRICommandQueue &q, const rapidjson::Value &obj) {
 		}
 	}
 
+
+	if(obj.FindMember("normals") == obj.MemberEnd()) {
+		normals.resize(vertices.size(), 0.0f);
+		dbLog(dbg::LOG_WARNING, "No normals found in triangle object.");
+	} else {
+		auto &normalsJSON = obj["normals"];
+		assert(normalsJSON.Capacity() == verticesJSON.Capacity());
+		for (unsigned int i = 0; i < normalsJSON.Capacity(); i += 3) {
+			if (i + 2 >= normalsJSON.Capacity()) {
+				throw std::runtime_error("Invalid number of normals in triangle object");
+			}
+			normals.push_back(normalsJSON[i].GetFloat());
+			normals.push_back(normalsJSON[i + 1].GetFloat());
+			normals.push_back(normalsJSON[i + 2].GetFloat());
+		}
+	}
+
 	auto &indicesJSON = obj["triangles"];
 	if (indicesJSON.Capacity() % 3 != 0) {
 		throw std::runtime_error("Indices must be a multiple of 3 for triangle objects");
@@ -139,7 +153,6 @@ Mesh::Mesh(NRI &nri, NRICommandQueue &q, const rapidjson::Value &obj) {
 		indices.push_back(idx1);
 		indices.push_back(idx2);
 	}
-	normals.resize(vertices.size(), 0.0f);
 
 	auto colors = std::vector<float>(vertices.size(), 1.0f);
 	// dbLog(dbg::LOG_DEBUG, "Mesh created with ", vertices.size(), " vertices and ", indices.size(), " triangles.");
