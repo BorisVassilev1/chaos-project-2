@@ -1,3 +1,5 @@
+#include <resource_heap.hlsl>
+
 // Vertex Shader
 struct VSInput
 {
@@ -15,25 +17,14 @@ struct VSOutput
 	float2 texCoord : TEXCOORD0;
 };
 
-class ResourceHandle
-{
-	uint index;
-
-	uint GetIndex() { return index & 0x1FFFFFFF; }
-	bool IsWritable() { return (index & 0x80000000) != 0; }
-	uint GetType() { return (index >> 29) & 0x3; }
-};
-
-
 struct PushConstants
 {
 	column_major float4x4 modelViewProjection;
-	uint32_t texture;
+	TextureHandle texture;
 };
 
 [[vk::push_constant]]
 PushConstants pushConstants : register(b0);
-
 
 [shader("vertex")]
 VSOutput VSMain(VSInput input)
@@ -59,16 +50,12 @@ struct PSInput
 	float2 texCoord : TEXCOORD0;
 };
 
-[[vk::binding(0, 0)]]
-Sampler2D<float4> textures[100] : register(t0);
-
 [shader("pixel")]
 float4 PSMain(PSInput input) : SV_TARGET
 {
 	float4 texColor;
-	if(pushConstants.texture != 0xFFFFFFFF) {
-		uint textureIndex = pushConstants.texture & 0x1FFFFFFF;
-		texColor = textures[textureIndex].Sample(input.texCoord);
+	if(pushConstants.texture.IsValid()) {
+		texColor = pushConstants.texture.Sample2D<float4>(input.texCoord);
 	} else {
 		texColor = float4(1.0, 1.0, 1.0, 1.0);
 	}

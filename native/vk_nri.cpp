@@ -7,8 +7,14 @@
 #include <ostream>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_raii.hpp>
-#include <slang/slang.h>
+#include "dxc_include_handler.hpp"
 #include <vulkan/vulkan_core.h>
+#ifdef _WIN32
+	#include <dxcapi.h>
+#else
+	#include <dxc/dxcapi.h>
+#endif
+
 #include <fstream>
 #include <format>
 #include "nri.hpp"
@@ -299,10 +305,9 @@ void VulkanNRI::createLogicalDevice() {
 		VK_TRUE,	 // descriptorBindingUpdateUnusedWhilePending
 		VK_TRUE,	 // descriptorBindingPartiallyBound
 		VK_TRUE,	 // descriptorBindingVariableDescriptorCount
-		VK_TRUE,		 // runtimeDescriptorArray
-		nullptr
-	);
-	vk::PhysicalDeviceDynamicRenderingFeatures	 dynamicRenderingFeature(VK_TRUE, &descriptorIndexingFeatures);
+		VK_TRUE,	 // runtimeDescriptorArray
+		nullptr);
+	vk::PhysicalDeviceDynamicRenderingFeatures dynamicRenderingFeature(VK_TRUE, &descriptorIndexingFeatures);
 
 	vk::DeviceCreateInfo createInfo(
 		{}, 1, &queueCreateInfo, enableValidationLayers ? static_cast<uint32_t>(validationLayers.size()) : 0,
@@ -794,9 +799,7 @@ void VulkanNRIQWindow::drawFrame() {
 		case vk::Result::eSuccess: break;
 		case vk::Result::eErrorOutOfDateKHR:
 		case vk::Result::eSuboptimalKHR:
-			dbLog(dbg::LOG_DEBUG, "Swap chain recreation needed");
 			vkDeviceWaitIdle(*nri.getDevice());
-			dbLog(dbg::LOG_DEBUG, "Device idle");
 			uint32_t width, height;
 			createSwapChain(width, height);
 			break;
@@ -860,36 +863,15 @@ std::pair<std::vector<vk::raii::ShaderModule>, std::vector<vk::PipelineShaderSta
 	std::vector<vk::PipelineShaderStageCreateInfo> shaderStages;
 	std::vector<vk::raii::ShaderModule>			   shaderModules;
 
-	using namespace slang;
-	static Slang::ComPtr<IGlobalSession> globalSession = nullptr;
-	if (!globalSession) {
-		SlangGlobalSessionDesc desc = {};
-		createGlobalSession(&desc, globalSession.writeRef());
-	}
+	IDxcCompiler3 *compiler = nullptr;
+	HRESULT		   hr		= DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&compiler));
+	assert(SUCCEEDED(hr) && "Failed to create DX Compiler.");
 
-	SessionDesc sessionDesc;
-	// add parameters
-	TargetDesc spirvTraget{};
-	spirvTraget.format	= SLANG_SPIRV;
-	spirvTraget.profile = globalSession->findProfile("spirv_1_5");
+	IDxcUtils *utils;
+	hr = DxcCreateInstance(CLSID_DxcUtils, IID_PPV_ARGS(&utils));
+	assert(SUCCEEDED(hr) && "Failed to create DX Utils.");
 
-	sessionDesc.targetCount									  = 1;
-	sessionDesc.targets										  = &spirvTraget;
-	std::array<slang::CompilerOptionEntry, 2> compilerOptions = {{
-		// this gets rid of warnings about binding locations overlapping
-		{slang::CompilerOptionName::VulkanBindShiftAll, {slang::CompilerOptionValueKind::Int, 0, 0, nullptr, nullptr}},
-	}};
-	sessionDesc.compilerOptionEntryCount					  = uint32_t(compilerOptions.size());
-	sessionDesc.compilerOptionEntries						  = compilerOptions.data();
-
-	sessionDesc.searchPathCount = 0;
-
-	PreprocessorMacroDesc apiMacro	   = {"VULKAN", "1"};
-	sessionDesc.preprocessorMacroCount = 1;
-	sessionDesc.preprocessorMacros	   = &apiMacro;
-
-	Slang::ComPtr<ISession> session;
-	globalSession->createSession(sessionDesc, session.writeRef());
+	auto includeHandler = std::make_unique<CustomIncludeHandler>(utils);
 
 	for (const auto &stageInfo : stagesInfo) {
 		vk::ShaderStageFlagBits stage;
@@ -903,66 +885,63 @@ std::pair<std::vector<vk::raii::ShaderModule>, std::vector<vk::PipelineShaderSta
 		std::ifstream fin(sourceFile);
 		std::string	  source{(std::istreambuf_iterator<char>(fin)), std::istreambuf_iterator<char>()};
 
-		SlangResult sr;
-
-		Slang::ComPtr<IBlob>   diagnosticsBlob;
-		Slang::ComPtr<IModule> module{session->loadModuleFromSourceString(sourceFile.filename().string().c_str(),
-																		  sourceFile.parent_path().string().c_str(),
-																		  source.c_str(), diagnosticsBlob.writeRef())};
-		if (diagnosticsBlob)
-			std::cerr << std::format("Error compiling shader {}: \n{}", stageInfo.sourceFile,
-									 (char *)diagnosticsBlob->getBufferPointer())
-					  << std::endl;
-		if (!module) throw std::runtime_error(std::format("Error compiling shader {}", stageInfo.sourceFile));
-
-		Slang::ComPtr<IEntryPoint> entryPoint;
-		sr = module->findEntryPointByName(stageInfo.entryPoint.c_str(), entryPoint.writeRef());
-
-		if (SLANG_FAILED(sr))
-			throw std::runtime_error(
-				std::format("Cannot find entry point {} in shader {}", stageInfo.entryPoint, stageInfo.sourceFile));
-
-		IComponentType				 *components[] = {module, entryPoint};
-		Slang::ComPtr<IComponentType> program;
-		sr = session->createCompositeComponentType(components, 2, program.writeRef());
-
-		if (SLANG_FAILED(sr))
-			throw std::runtime_error(std::format("Cannot bind entry point and shader for {}", stageInfo.sourceFile));
-
-		Slang::ComPtr<IComponentType> linkedProgram{nullptr};
-		Slang::ComPtr<ISlangBlob>	  diagnosticBlob;
-		sr = program->link(linkedProgram.writeRef(), diagnosticBlob.writeRef());
-		if (diagnosticBlob)
-			std::cerr << std::format("Error linking shader {}: \n{}", stageInfo.sourceFile,
-									 (char *)diagnosticBlob->getBufferPointer())
-					  << std::endl;
-		if (SLANG_FAILED(sr)) throw std::runtime_error(std::format("Error linking shader {}", stageInfo.sourceFile));
-
-		Slang::ComPtr<IBlob> spirvBlob;
-		sr = linkedProgram->getEntryPointCode(0, 0, spirvBlob.writeRef(), diagnosticsBlob.writeRef());
-		if (diagnosticsBlob)
-			std::cerr << std::format("Error emitting code for shader {}: \n{}", stageInfo.sourceFile,
-									 (char *)diagnosticsBlob->getBufferPointer())
-					  << std::endl;
-		if (SLANG_FAILED(sr))
-			throw std::runtime_error(std::format("Error emitting code for shader {}", stageInfo.sourceFile));
-
-		//	ProgramLayout *programLayout = linkedProgram->getLayout(0, diagnosticsBlob.writeRef());
-		//	if (diagnosticsBlob)
-		//		std::cerr << std::format("Error getting layout for shader {}: \n{}", stageInfo.sourceFile,
-		//								 (char *)diagnosticsBlob->getBufferPointer())
-		//				  << std::endl;
-
-		// Reflect vertex shader inputs
-		if (stageInfo.shaderType == NRI::ShaderType::SHADER_TYPE_VERTEX) {
-			// TODO: implement if needed
+		IDxcBlobEncoding *sourceBlob;
+		std::wstring	  wSourceFile = std::wstring(stageInfo.sourceFile.begin(), stageInfo.sourceFile.end());
+		HRESULT			  hr		  = utils->LoadFile(wSourceFile.c_str(), nullptr, &sourceBlob);
+		if (FAILED(hr)) {
+			throw std::runtime_error("Failed to load shader source file: " + std::string(stageInfo.sourceFile));
 		}
 
-		vk::ShaderModuleCreateInfo shaderModuleInfo({}, spirvBlob->getBufferSize(),
-													reinterpret_cast<const uint32_t *>(spirvBlob->getBufferPointer()));
+		std::vector<LPCWSTR> arguments;
+		arguments.push_back(L"-E");
+		std::wstring entryPoint = std::wstring(stageInfo.entryPoint.begin(), stageInfo.entryPoint.end());
+		arguments.push_back(entryPoint.c_str());
+		arguments.push_back(L"-T");
+		switch (stageInfo.shaderType) {
+			case NRI::ShaderType::SHADER_TYPE_VERTEX: arguments.push_back(L"vs_6_0"); break;
+			case NRI::ShaderType::SHADER_TYPE_FRAGMENT: arguments.push_back(L"ps_6_0"); break;
+			default: throw std::runtime_error("Unsupported shader stage!");
+		}
+		arguments.push_back(L"-spirv");
+		arguments.push_back(L"-D");
+		arguments.push_back(L"VULKAN");
+		arguments.push_back(L"-I");
+		arguments.push_back(PROJECT_ROOT_DIR L"/shaders/");
+		arguments.push_back(L"-fvk-use-dx-layout");
+		arguments.push_back(L"-fspv-target-env=vulkan1.2");
+		arguments.push_back(L"-HV");
+		arguments.push_back(L"2021");
+
+
+		DxcBuffer buffer{};
+		buffer.Ptr		= sourceBlob->GetBufferPointer();
+		buffer.Size		= sourceBlob->GetBufferSize();
+		buffer.Encoding = 0;
+
+		std::cout << "Compiling shader: " << stageInfo.sourceFile << std::endl;
+
+		includeHandler->reset();
+		IDxcResult *result;
+		hr = compiler->Compile(&buffer, arguments.data(), static_cast<UINT32>(arguments.size()), includeHandler.get(),
+							   IID_PPV_ARGS(&result));
+		if (FAILED(hr)) { throw std::runtime_error("Failed to compile shader: " + std::string(stageInfo.sourceFile)); }
+
+		IDxcBlobEncoding *errorBuffer;
+		result->GetErrorBuffer(&errorBuffer);
+		if (errorBuffer != nullptr && errorBuffer->GetBufferSize() > 0) {
+			std::string errorMessage(reinterpret_cast<const char *>(errorBuffer->GetBufferPointer()),
+									 errorBuffer->GetBufferSize());
+			std::cerr << "Shader compilation warnings/errors: " << errorMessage << std::endl;
+		}
+
+		IDxcBlob *spirvBlob;
+		result->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&spirvBlob), nullptr);
+
+		vk::ShaderModuleCreateInfo shaderModuleInfo({}, spirvBlob->GetBufferSize(),
+													reinterpret_cast<const uint32_t *>(spirvBlob->GetBufferPointer()));
 		shaderModules.emplace_back(device, shaderModuleInfo);
 
-		vk::PipelineShaderStageCreateInfo shaderStageInfo({}, stage, *shaderModules.back(), "main");
+		vk::PipelineShaderStageCreateInfo shaderStageInfo({}, stage, *shaderModules.back(), stageInfo.entryPoint.c_str());
 		shaderStages.push_back(shaderStageInfo);
 	}
 	return {std::move(shaderModules), std::move(shaderStages)};
