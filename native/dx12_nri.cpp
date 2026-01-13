@@ -1,4 +1,4 @@
-#ifdef _WIN32
+#if defined(_WIN32) && defined(NRI_DX12)
 	#include <windows.h>
 	#include <wrl/client.h>
 	#include "dx12_nri.hpp"

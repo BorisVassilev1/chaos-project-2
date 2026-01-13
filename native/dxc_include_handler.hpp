@@ -2,10 +2,16 @@
 #include <filesystem>
 #include <unordered_set>
 #ifdef _WIN32
-	#include <dxcapi.h>
+	#define NOMINMAX
+	#include <wrl.h>
+	//#include <dxcapi.h>
+	#define CComPtr Microsoft::WRL::ComPtr
+	#undef MemoryBarrier
+	#include <dxc/dxcapi.h>
 #else
 	#include <dxc/dxcapi.h>
 #endif
+#include "../beamcast/utils.hpp"
 #include "unicode.hpp"
 #include <iostream>
 
@@ -20,7 +26,7 @@ class CustomIncludeHandler : public IDxcIncludeHandler {
 										 _COM_Outptr_result_maybenull_ IDxcBlob **ppIncludeSource) override {
 		CComPtr<IDxcBlobEncoding> pEncoding;
 		std::filesystem::path	  path = std::filesystem::canonical(WIDE_TO_UNICODE(pFilename));
-		if (IncludedFiles.find(path) != IncludedFiles.end()) {
+		if (IncludedFiles.find(path.string()) != IncludedFiles.end()) {
 			// Return empty string blob if this file has been included before
 			static const char nullStr[] = " ";
 			pUtils->CreateBlobFromPinned(nullStr, ARRAYSIZE(nullStr), DXC_CP_ACP, &pEncoding);
@@ -30,7 +36,7 @@ class CustomIncludeHandler : public IDxcIncludeHandler {
 
 		HRESULT hr = pUtils->LoadFile(pFilename, nullptr, &pEncoding);
 		if (SUCCEEDED(hr)) {
-			IncludedFiles.insert(path);
+			IncludedFiles.insert(path.string());
 			*ppIncludeSource = pEncoding.Detach();
 		}
 		return hr;

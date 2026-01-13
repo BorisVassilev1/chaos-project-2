@@ -20,6 +20,8 @@ class NRIProgram;
 class NRIGraphicsProgram;
 class NRIComputeProgram;
 class NRIProgramBuilder;
+class NRIBLAS;
+class NRITLAS;
 class Renderer;
 
 /// NRI - Native Rendering Interface
@@ -28,12 +30,13 @@ class NRI {
 	virtual ~NRI() {}
 
 	enum BufferUsage {
-		BUFFER_USAGE_VERTEX		  = 1 << 0,
-		BUFFER_USAGE_INDEX		  = 1 << 1,
-		BUFFER_USAGE_UNIFORM	  = 1 << 2,
-		BUFFER_USAGE_STORAGE	  = 1 << 3,
-		BUFFER_USAGE_TRANSFER_SRC = 1 << 4,
-		BUFFER_USAGE_TRANSFER_DST = 1 << 5
+		BUFFER_USAGE_VERTEX					= 1 << 0,
+		BUFFER_USAGE_INDEX					= 1 << 1,
+		BUFFER_USAGE_UNIFORM				= 1 << 2,
+		BUFFER_USAGE_STORAGE				= 1 << 3,
+		BUFFER_USAGE_TRANSFER_SRC			= 1 << 4,
+		BUFFER_USAGE_TRANSFER_DST			= 1 << 5,
+		BUFFER_USAGE_ACCELERATION_STRUCTURE = 1 << 6
 	};
 
 	enum Format {
@@ -267,6 +270,11 @@ class NRI {
 	virtual std::unique_ptr<NRIProgramBuilder> createProgramBuilder()								  = 0;
 	virtual NRIQWindow *createQWidgetSurface(QApplication &app, std::unique_ptr<Renderer> &&renderer) = 0;
 
+	virtual std::unique_ptr<NRIBLAS> createBLAS(NRIBuffer &vertexBuffer, NRI::Format vertexFormat,
+												std::size_t vertexOffset, uint32_t vertexCount,
+												std::size_t vertexStride, NRIBuffer &indexBuffer,
+												NRI::IndexType indexType, std::size_t indexOffset) = 0;
+
 	virtual bool shouldFlipY() const = 0;
 
 	virtual void synchronize() const = 0;
@@ -306,11 +314,10 @@ class NRIResourceHandle final {
 
 	static NRIResourceHandle INVALID_HANDLE;
 
-	bool operator==(const NRIResourceHandle &other) const = default;
-	bool operator!=(const NRIResourceHandle &other) const = default;
+	bool operator==(const NRIResourceHandle &other) const		 = default;
+	bool operator!=(const NRIResourceHandle &other) const		 = default;
 	NRIResourceHandle(const NRIResourceHandle &other)			 = default;
 	NRIResourceHandle &operator=(const NRIResourceHandle &other) = default;
-
 };
 
 class NRIAllocation {
@@ -423,6 +430,14 @@ class NRIComputeProgram : virtual public NRIProgram {
    public:
 	virtual void dispatch(NRICommandBuffer &commandBuffer, uint32_t groupCountX, uint32_t groupCountY,
 						  uint32_t groupCountZ) = 0;
+};
+
+// Bottom-Level Acceleration Structure (BLAS)
+class NRIBLAS {
+   public:
+	virtual void build(NRICommandBuffer &commandBuffer) = 0;
+
+	virtual ~NRIBLAS() {}
 };
 
 class Renderer : public QWidget {

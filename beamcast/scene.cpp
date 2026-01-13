@@ -92,8 +92,17 @@ Scene::Scene(NRI &nri, NRICommandQueue &q, const std::string_view &filename) {
 			} else if (obj["type"].GetString() == std::string_view("edges")) {
 				// textures.emplace_back(new EdgeTexture(obj));
 			} else if (obj["type"].GetString() == std::string_view("bitmap")) {
-				std::string filename	= obj["file_path"].GetString();
-				auto		sceneFolder = scenePath.parent_path();
+				std::string filename = obj["file_path"].GetString();
+				dbLog(dbg::LOG_DEBUG, "Original texture file path: ", filename);
+#ifdef _WIN32
+				if (filename.starts_with("/home/")) {	  // hack to fix absolute paths from linux exports
+					dbLog(dbg::LOG_WARNING, "Texture file path '", filename,
+						  "' appears to be an absolute path from a Linux system. Attempting to fix path.");
+					auto diskPos = filename.find("/D/");
+					filename	 = "D:" + filename.substr(diskPos + 2);
+				}
+#endif
+				auto sceneFolder = scenePath.parent_path();
 				if (sceneFolder.empty()) { sceneFolder = std::filesystem::current_path(); }
 				auto fullPath = std::filesystem::path(std::string_view(filename));
 				if (fullPath.is_relative()) fullPath = sceneFolder / fullPath;
@@ -146,8 +155,7 @@ void Scene::render(NRICommandBuffer &commandBuffer, NRIGraphicsProgram &program,
 		glm::mat4 modelViewProjection = camera.getViewProjectionMatrix() * obj.transform;
 		program.setPushConstants(commandBuffer, &modelViewProjection, sizeof(modelViewProjection), 0);
 
-		program.setPushConstants(
-			commandBuffer, &textureHandle, sizeof(PushConstantData), sizeof(modelViewProjection));
+		program.setPushConstants(commandBuffer, &textureHandle, sizeof(PushConstantData), sizeof(modelViewProjection));
 
 		mesh.draw(commandBuffer, program);
 	}

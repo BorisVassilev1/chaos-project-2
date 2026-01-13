@@ -1,7 +1,7 @@
 #pragma once
 #include "nri.hpp"
 
-#ifdef _WIN32
+#if defined(_WIN32) && defined(NRI_DX12)
 	#include <dxgi1_6.h>
 	#include <d3d12.h>
 	#include <wrl.h>

@@ -7,8 +7,8 @@
 
 #include <vulkan/vulkan_raii.hpp>
 
-#include <slang/slang.h>
-#include <slang/slang-com-ptr.h>
+//#include <slang/slang.h>
+//#include <slang/slang-com-ptr.h>
 
 #include "nri.hpp"
 #include "nriFactory.hpp"
@@ -59,7 +59,7 @@ class VulkanDescriptorAllocator {
 	auto	   &getDescriptorSet() { return bigDescriptorSet; }
 	const auto &getDescriptorSet() const { return bigDescriptorSet; }
 
-	auto &getDescriptorSetLayout() { return descriptorSetLayout; }
+	auto	   &getDescriptorSetLayout() { return descriptorSetLayout; }
 	const auto &getDescriptorSetLayout() const { return descriptorSetLayout; }
 };
 
@@ -68,6 +68,7 @@ class VulkanNRIAllocation : public NRIAllocation {
 	vk::Device			   device;
 
    public:
+	VulkanNRIAllocation(std::nullptr_t) : memory(nullptr), device(nullptr) {}
 	VulkanNRIAllocation(VulkanNRI &nri, NRI::MemoryRequirements memoryRequirements);
 	VulkanNRIAllocation(vk::raii::DeviceMemory &&mem, vk::Device dev) : memory(std::move(mem)), device(dev) {}
 
@@ -76,16 +77,16 @@ class VulkanNRIAllocation : public NRIAllocation {
 };
 
 class VulkanNRIBuffer : public NRIBuffer {
+	VulkanNRI			*nri;
 	vk::raii::Buffer	 buffer;
-	vk::Device			 device;
 	VulkanNRIAllocation *allocation;
 
 	std::size_t offset = 0;
 	std::size_t size   = 0;
 
    public:
-	VulkanNRIBuffer(vk::raii::Buffer &&buf, vk::Device dev, std::size_t size)
-		: buffer(std::move(buf)), device(dev), allocation(nullptr), size(size) {}
+	VulkanNRIBuffer(std::nullptr_t) : nri(nullptr), buffer(nullptr), allocation(nullptr), offset(0), size(0) {}
+	VulkanNRIBuffer(VulkanNRI &nri, std::size_t size, NRI::BufferUsage usage);
 
 	NRI::MemoryRequirements getMemoryRequirements() override;
 	void					bindMemory(NRIAllocation &allocation, std::size_t offset) override;
@@ -101,6 +102,8 @@ class VulkanNRIBuffer : public NRIBuffer {
 	void bindAsVertexBuffer(NRICommandBuffer &commandBuffer, uint32_t binding, std::size_t offset,
 							std::size_t stride) override;
 	void bindAsIndexBuffer(NRICommandBuffer &commandBuffer, std::size_t offset, NRI::IndexType indexType) override;
+
+	vk::DeviceAddress getAddress();
 };
 
 class VulkanNRIImage2D : public NRIImage2D {
@@ -268,6 +271,53 @@ class VulkanNRIComputeProgram : public VulkanNRIProgram, public NRIComputeProgra
 				  uint32_t groupCountZ) override;
 };
 
+class VulkanMemoryCache {
+	VulkanNRIBuffer		buffer;
+	VulkanNRIAllocation allocation;
+
+	VulkanMemoryCache() : buffer(nullptr), allocation(nullptr) {}
+
+	void assureSize(VulkanNRI &nri, std::size_t size);
+
+   public:
+	VulkanNRIBuffer &getAccelerationStructureScratch(VulkanNRI									&nri,
+													 vk::AccelerationStructureBuildSizesInfoKHR &sizeInfo);
+
+   private:		// this does not work currently
+	static VulkanMemoryCache &getInstance();
+	static void				  destroy();
+};
+
+class VulkanNRIBLAS : public NRIBLAS {
+	VulkanNRI						  *nri;
+	vk::raii::AccelerationStructureKHR accelerationStructure;
+	VulkanNRIBuffer					   asBuffer;
+	VulkanNRIAllocation				   asMemory;
+	std::size_t						   indexOffset = 0;
+
+	struct TemporaryBuildInfo {
+		vk::AccelerationStructureBuildSizesInfoKHR	  sizeInfo;
+		vk::AccelerationStructureGeometryKHR		  geometry;
+		vk::AccelerationStructureBuildRangeInfoKHR	  buildRangeInfo;
+		vk::AccelerationStructureBuildGeometryInfoKHR buildGeometryInfo;
+		VulkanNRIBuffer								 *vertexBuffer;
+		VulkanNRIBuffer								 *indexBuffer;
+		VulkanNRIBuffer								  scratchBuffer = nullptr;
+		VulkanNRIAllocation							  scratchMemory = nullptr;
+	};
+	std::unique_ptr<TemporaryBuildInfo> tempBuildInfo;
+
+   public:
+	VulkanNRIBLAS(VulkanNRI &nri, VulkanNRIBuffer &vertexBuffer, NRI::Format vertexFormat, std::size_t vertexOffset,
+				  uint32_t vertexCount, std::size_t vertexStride, VulkanNRIBuffer &indexBuffer,
+				  NRI::IndexType indexType, std::size_t indexOffset);
+
+	void build(NRICommandBuffer &commandBuffer) override;
+
+	auto	   &getAccelerationStructure() { return accelerationStructure; }
+	const auto &getAccelerationStructure() const { return accelerationStructure; }
+};
+
 class VulkanNRIQWindow : public NRIQWindow {
 	vk::raii::SurfaceKHR   surface;
 	vk::raii::SwapchainKHR swapChain;
@@ -317,6 +367,7 @@ class VulkanNRI : public NRI {
 
    public:
 	VulkanNRI();
+	~VulkanNRI();
 
 	std::unique_ptr<NRIBuffer>		   createBuffer(std::size_t size, BufferUsage usage) override;
 	std::unique_ptr<NRIImage2D>		   createImage2D(uint32_t width, uint32_t height, NRI::Format fmt,
@@ -326,7 +377,10 @@ class VulkanNRI : public NRI {
 	std::unique_ptr<NRICommandBuffer>  createCommandBuffer(const NRICommandPool &commandPool) override;
 	std::unique_ptr<NRICommandPool>	   createCommandPool() override;
 	std::unique_ptr<NRIProgramBuilder> createProgramBuilder() override;
-	NRIQWindow *createQWidgetSurface(QApplication &app, std::unique_ptr<Renderer> &&renderer) override;
+	NRIQWindow				*createQWidgetSurface(QApplication &app, std::unique_ptr<Renderer> &&renderer) override;
+	std::unique_ptr<NRIBLAS> createBLAS(NRIBuffer &vertexBuffer, NRI::Format vertexFormat, std::size_t vertexOffset,
+										uint32_t vertexCount, std::size_t vertexStride, NRIBuffer &indexBuffer,
+										NRI::IndexType indexType, std::size_t indexOffset) override;
 
 	struct QueueFamilyIndices {
 		std::optional<uint32_t> graphicsFamily;

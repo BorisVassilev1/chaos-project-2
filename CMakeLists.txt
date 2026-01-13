@@ -31,10 +31,12 @@ add_executable(${PROJECT_NAME} main.cpp ${SOURCE_FILES})
 add_definitions(${Qt6Core_DEFINITIONS})
 target_link_libraries (${PROJECT_NAME} Vulkan::Vulkan)
 if (WIN32)
-	target_link_libraries(${PROJECT_NAME} $ENV{VULKAN_SDK}/Lib/slangd.lib)
+	#target_link_libraries(${PROJECT_NAME} $ENV{VULKAN_SDK}/Lib/slangd.lib)
+	target_link_libraries(${PROJECT_NAME} $ENV{VULKAN_SDK}/Lib/dxcompiler.lib)
     target_include_directories(${PROJECT_NAME} PRIVATE lib/rapidjson/include)
+    target_include_directories(${PROJECT_NAME} PRIVATE lib/)
 else()
-	target_link_libraries(${PROJECT_NAME} $ENV{VULKAN_SDK}/lib/libslang.so)
+	#target_link_libraries(${PROJECT_NAME} $ENV{VULKAN_SDK}/lib/libslang.so)
 endif()
 
 if (UNIX)
@@ -70,6 +72,13 @@ if (MSVC)
         add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD COMMAND
             ${QT6_DIR}/../../bin/windeployqt.exe ${CMAKE_BINARY_DIR}/../${PROJECT_NAME}.exe
         )
+        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD COMMAND
+            #remove old dxcompiler.dll if exists
+            ${CMAKE_COMMAND} -E remove -f ${CMAKE_BINARY_DIR}/../dxcompiler.dll
+        )
+        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD COMMAND
+            ${CMAKE_COMMAND} -E copy $ENV{VULKAN_SDK}/Bin/dxcompiler.dll ${CMAKE_BINARY_DIR}/../dxcompiler.dll
+        )
     else()
         message(STATUS ${QT6_DIR}/../../bin/windeployqt.exe ${CMAKE_BINARY_DIR}/../Debug/${PROJECT_NAME}.exe)
         add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD COMMAND
@@ -83,5 +92,6 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE
     PROJECT_ROOT_DIR="${CMAKE_SOURCE_DIR}/"
 	DBG_LOG_LEVEL=-1
 )
+message(INFO "Project root dir: ${CMAKE_SOURCE_DIR}/")
 
 

@@ -1,5 +1,6 @@
 #include "mesh.hpp"
 #include "../engine/buffer_utils.hpp"
+#include "../beamcast/utils.hpp"
 
 Mesh::Mesh(NRI &nri, NRICommandQueue &q, std::span<float> vertices, std::span<float> colors, std::span<float> normals,
 		   std::span<float> texCoords, std::span<uint32_t> indices) {
@@ -68,14 +69,23 @@ void Mesh::init(NRI &nri, NRICommandQueue &q, std::span<float> vertices, std::sp
 		uploadBuffer->unmap();
 	}
 
+	bottomLevelAS = nri.createBLAS(*vertexAttributes, NRI::Format::FORMAT_R32G32B32_SFLOAT, 0, vertexCount,
+								   (3 + 3 + 3 + 2) * sizeof(float), *indexBuffer,
+								   NRI::IndexType::INDEX_TYPE_UINT32, 0);
+
 	auto cmdBuffer = nri.createCommandBuffer(nri.getDefaultCommandPool());
 	vertexAttributes->copyFrom(*cmdBuffer, *uploadBuffer, vertexAttributes->getOffset(), 0,
 							   vertexAttributes->getSize());
 	indexBuffer->copyFrom(*cmdBuffer, *uploadBuffer, indexBuffer->getOffset(), 0, indexBuffer->getSize());
+
+	bottomLevelAS->build(*cmdBuffer);
 	cmdBuffer->end();
 
-	auto key = q.submit(*cmdBuffer);
+	dbLog(dbg::LOG_DEBUG, "submitting mesh upload command buffer");
+	auto key	  = q.submit(*cmdBuffer);
 	q.wait(key);
+	dbLog(dbg::LOG_DEBUG, "mesh upload command buffer completed. Waiting for user input to continue...");
+	std::cin.get();
 }
 
 Mesh::Mesh(NRI &nri, NRICommandQueue &q, const rapidjson::Value &obj) {
@@ -114,8 +124,7 @@ Mesh::Mesh(NRI &nri, NRICommandQueue &q, const rapidjson::Value &obj) {
 		}
 	}
 
-
-	if(obj.FindMember("normals") == obj.MemberEnd()) {
+	if (obj.FindMember("normals") == obj.MemberEnd()) {
 		normals.resize(vertices.size(), 0.0f);
 		dbLog(dbg::LOG_WARNING, "No normals found in triangle object.");
 	} else {

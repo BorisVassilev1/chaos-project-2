@@ -12,6 +12,7 @@ class Mesh {
 
 	std::unique_ptr<NRIBuffer> vertexAttributes;
 	std::unique_ptr<NRIBuffer> indexBuffer;
+	std::unique_ptr<NRIBLAS>	bottomLevelAS;
 
 	uint32_t vertexCount = 0;
 	uint32_t indexCount	 = 0;
