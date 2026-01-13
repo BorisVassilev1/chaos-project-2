@@ -12,7 +12,7 @@ class Mesh {
 
 	std::unique_ptr<NRIBuffer> vertexAttributes;
 	std::unique_ptr<NRIBuffer> indexBuffer;
-	std::unique_ptr<NRIBLAS>	bottomLevelAS;
+	std::unique_ptr<NRIBLAS>   bottomLevelAS;
 
 	uint32_t vertexCount = 0;
 	uint32_t indexCount	 = 0;
@@ -30,6 +30,7 @@ class Mesh {
 	void draw(NRICommandBuffer &cmdBuffer, NRIGraphicsProgram &program);
 
 	std::vector<NRI::VertexBinding> getVertexBindings() const;
+	const NRIBLAS				   &getBLAS() const;
 };
 
 class TriangleMesh : public Mesh {

@@ -274,6 +274,7 @@ class NRI {
 												std::size_t vertexOffset, uint32_t vertexCount,
 												std::size_t vertexStride, NRIBuffer &indexBuffer,
 												NRI::IndexType indexType, std::size_t indexOffset) = 0;
+	virtual std::unique_ptr<NRITLAS> createTLAS(const std::span<const NRIBLAS *> &blases, std::optional<std::span<glm::mat4x3>> transforms = std::nullopt) = 0;
 
 	virtual bool shouldFlipY() const = 0;
 
@@ -438,6 +439,13 @@ class NRIBLAS {
 	virtual void build(NRICommandBuffer &commandBuffer) = 0;
 
 	virtual ~NRIBLAS() {}
+};
+
+class NRITLAS {
+   public:
+	virtual void build(NRICommandBuffer &commandBuffer) = 0;
+
+	virtual ~NRITLAS() {}
 };
 
 class Renderer : public QWidget {

@@ -7,8 +7,8 @@
 
 #include <vulkan/vulkan_raii.hpp>
 
-//#include <slang/slang.h>
-//#include <slang/slang-com-ptr.h>
+// #include <slang/slang.h>
+// #include <slang/slang-com-ptr.h>
 
 #include "nri.hpp"
 #include "nriFactory.hpp"
@@ -296,7 +296,6 @@ class VulkanNRIBLAS : public NRIBLAS {
 	std::size_t						   indexOffset = 0;
 
 	struct TemporaryBuildInfo {
-		vk::AccelerationStructureBuildSizesInfoKHR	  sizeInfo;
 		vk::AccelerationStructureGeometryKHR		  geometry;
 		vk::AccelerationStructureBuildRangeInfoKHR	  buildRangeInfo;
 		vk::AccelerationStructureBuildGeometryInfoKHR buildGeometryInfo;
@@ -314,8 +313,41 @@ class VulkanNRIBLAS : public NRIBLAS {
 
 	void build(NRICommandBuffer &commandBuffer) override;
 
-	auto	   &getAccelerationStructure() { return accelerationStructure; }
-	const auto &getAccelerationStructure() const { return accelerationStructure; }
+	auto			 &getAccelerationStructure() { return accelerationStructure; }
+	const auto		 &getAccelerationStructure() const { return accelerationStructure; }
+	vk::DeviceAddress getAddress() const;
+};
+
+class VulkanNRITLAS : public NRITLAS {
+	VulkanNRI						  *nri;
+	vk::raii::AccelerationStructureKHR as;
+	VulkanNRIBuffer					   asBuffer;
+	VulkanNRIAllocation				   asMemory;
+
+	struct TemporaryBuildInfo {
+		vk::AccelerationStructureGeometryKHR		  geometry;
+		vk::AccelerationStructureBuildRangeInfoKHR	  buildRangeInfo;
+		vk::AccelerationStructureBuildGeometryInfoKHR buildGeometryInfo;
+		VulkanNRIBuffer								  instanceUploadBuffer = nullptr;
+		VulkanNRIAllocation							  instanceUploadMemory = nullptr;
+
+		VulkanNRIBuffer		instanceBuffer = nullptr;
+		VulkanNRIAllocation instanceMemory = nullptr;
+
+		VulkanNRIBuffer		scratchBuffer = nullptr;
+		VulkanNRIAllocation scratchMemory = nullptr;
+	};
+
+	std::unique_ptr<TemporaryBuildInfo> tempBuildInfo;
+
+   public:
+	VulkanNRITLAS(VulkanNRI &nri, const std::span<const NRIBLAS *> &blases,
+				  std::optional<std::span<glm::mat4x3>> transforms = std::nullopt);
+
+	void build(NRICommandBuffer &commandBuffer) override;
+
+	auto	   &getTLAS() { return as; }
+	const auto &getTLAS() const { return as; }
 };
 
 class VulkanNRIQWindow : public NRIQWindow {
@@ -381,6 +413,9 @@ class VulkanNRI : public NRI {
 	std::unique_ptr<NRIBLAS> createBLAS(NRIBuffer &vertexBuffer, NRI::Format vertexFormat, std::size_t vertexOffset,
 										uint32_t vertexCount, std::size_t vertexStride, NRIBuffer &indexBuffer,
 										NRI::IndexType indexType, std::size_t indexOffset) override;
+
+	std::unique_ptr<NRITLAS> createTLAS(const std::span<const NRIBLAS *>	 &blases,
+										std::optional<std::span<glm::mat4x3>> transforms = std::nullopt) override;
 
 	struct QueueFamilyIndices {
 		std::optional<uint32_t> graphicsFamily;

@@ -79,6 +79,18 @@ Scene::Scene(NRI &nri, NRICommandQueue &q, const std::string_view &filename) {
 		}
 	}
 
+	std::vector<const NRIBLAS *>	 blasList;
+	std::vector<glm::mat4x3> transforms;
+	for(const auto &obj : meshObjects) {
+		dbLog(dbg::LOG_DEBUG, "Adding mesh index ", obj.meshIndex, " of ", meshes.size(), " to TLAS.");
+		assert(obj.meshIndex < meshes.size());
+		blasList.push_back(&(meshes[obj.meshIndex].getBLAS()));
+		transforms.push_back(glm::mat4x3(obj.transform));
+	}
+	dbLog(dbg::LOG_INFO, "Creating TLAS with ", blasList.size(), " instances.");
+	//tlas = nri.createTLAS(blasList, transforms);
+
+
 	if (doc.FindMember("textures") != doc.MemberEnd()) {
 		auto texturesJSON = doc["textures"].GetArray();
 		dbLog(dbg::LOG_DEBUG, "Found ", texturesJSON.Size(), " textures in scene file.");

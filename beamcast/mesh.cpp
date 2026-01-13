@@ -70,22 +70,20 @@ void Mesh::init(NRI &nri, NRICommandQueue &q, std::span<float> vertices, std::sp
 	}
 
 	bottomLevelAS = nri.createBLAS(*vertexAttributes, NRI::Format::FORMAT_R32G32B32_SFLOAT, 0, vertexCount,
-								   (3 + 3 + 3 + 2) * sizeof(float), *indexBuffer,
-								   NRI::IndexType::INDEX_TYPE_UINT32, 0);
+								   (3 + 3 + 3 + 2) * sizeof(float), *indexBuffer, NRI::IndexType::INDEX_TYPE_UINT32, 0);
 
 	auto cmdBuffer = nri.createCommandBuffer(nri.getDefaultCommandPool());
 	vertexAttributes->copyFrom(*cmdBuffer, *uploadBuffer, vertexAttributes->getOffset(), 0,
 							   vertexAttributes->getSize());
 	indexBuffer->copyFrom(*cmdBuffer, *uploadBuffer, indexBuffer->getOffset(), 0, indexBuffer->getSize());
 
-	bottomLevelAS->build(*cmdBuffer);
+	// bottomLevelAS->build(*cmdBuffer);
 	cmdBuffer->end();
 
 	dbLog(dbg::LOG_DEBUG, "submitting mesh upload command buffer");
-	auto key	  = q.submit(*cmdBuffer);
+	auto key = q.submit(*cmdBuffer);
 	q.wait(key);
-	dbLog(dbg::LOG_DEBUG, "mesh upload command buffer completed. Waiting for user input to continue...");
-	std::cin.get();
+	// std::cin.get();
 }
 
 Mesh::Mesh(NRI &nri, NRICommandQueue &q, const rapidjson::Value &obj) {
@@ -188,4 +186,9 @@ std::vector<NRI::VertexBinding> Mesh::getVertexBindings() const {
 			 {2, NRI::Format::FORMAT_R32G32B32_SFLOAT, 24, NRI::VertexInputRate::VERTEX_INPUT_RATE_VERTEX, "NORMAL"},
 			 {3, NRI::Format::FORMAT_R32G32_SFLOAT, 36, NRI::VertexInputRate::VERTEX_INPUT_RATE_VERTEX, "TEXCOORD0_"},
 		 }}};
+}
+
+const NRIBLAS &Mesh::getBLAS() const {
+	if (!bottomLevelAS) { dbLog(dbg::LOG_ERROR, "Bottom level AS not created for this mesh!"); }
+	return *bottomLevelAS;
 }

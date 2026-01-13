@@ -309,7 +309,7 @@ void VulkanNRI::pickPhysicalDevice() {
 		}
 	}
 
-	// list acceleration structure properties 
+	// list acceleration structure properties
 	vk::PhysicalDeviceAccelerationStructurePropertiesKHR accelerationStructureProperties;
 	{
 		vk::PhysicalDeviceProperties2 deviceProperties2;
@@ -322,8 +322,7 @@ void VulkanNRI::pickPhysicalDevice() {
 		dbLog(dbg::LOG_INFO, " maxPerStageDescriptorAccelerationStructures: ",
 			  accelerationStructureProperties.maxPerStageDescriptorAccelerationStructures);
 		dbLog(dbg::LOG_INFO, " maxPerStageDescriptorUpdateAfterBindAccelerationStructures: ",
-			  accelerationStructureProperties
-				  .maxPerStageDescriptorUpdateAfterBindAccelerationStructures);
+			  accelerationStructureProperties.maxPerStageDescriptorUpdateAfterBindAccelerationStructures);
 		dbLog(dbg::LOG_INFO, " maxDescriptorSetAccelerationStructures: ",
 			  accelerationStructureProperties.maxDescriptorSetAccelerationStructures);
 		dbLog(dbg::LOG_INFO, " maxDescriptorSetUpdateAfterBindAccelerationStructures: ",
@@ -1319,54 +1318,54 @@ VulkanNRIBLAS::VulkanNRIBLAS(VulkanNRI &nri, VulkanNRIBuffer &vertexBuffer, NRI:
 	vk::IndexType vkIndexType	 = (vk::IndexType)nriIndexType2vkIndexType[static_cast<int>(indexType)];
 
 	vk::AccelerationStructureGeometryTrianglesDataKHR trianglesData(
-		vkVertexFormat, vertexBuffer.getAddress(), vertexStride, vertexOffset, vkIndexType, indexBuffer.getAddress());
-	dbLog(dbg::LOG_DEBUG, "Vertex buffer address: ", std::hex, vertexBuffer.getAddress(), std::dec);
-	dbLog(dbg::LOG_DEBUG, "Index buffer address: ", std::hex, indexBuffer.getAddress(), std::dec);
-
+		vkVertexFormat, vertexBuffer.getAddress(), vertexStride, vertexCount, vkIndexType, indexBuffer.getAddress());
 	this->tempBuildInfo				  = std::make_unique<TemporaryBuildInfo>();
 	this->tempBuildInfo->vertexBuffer = &vertexBuffer;
 	this->tempBuildInfo->indexBuffer  = &indexBuffer;
 
 	this->tempBuildInfo->geometry = vk::AccelerationStructureGeometryKHR(vk::GeometryTypeKHR::eTriangles, trianglesData,
 																		 vk::GeometryFlagBitsKHR::eOpaque);
-	this->tempBuildInfo->buildRangeInfo = vk::AccelerationStructureBuildRangeInfoKHR(
-		vertexCount, indexOffset, 0, 0);	 // primitiveCount, primitiveOffset, firstVertex, transformOffset
+	std::size_t primitiveCount	  = -1;
+	if (indexType == NRI::IndexType::INDEX_TYPE_UINT16) primitiveCount = indexBuffer.getSize() / sizeof(uint16_t) / 3;
+	else if (indexType == NRI::IndexType::INDEX_TYPE_UINT32)
+		primitiveCount = indexBuffer.getSize() / sizeof(uint32_t) / 3;
+
+	this->tempBuildInfo->buildRangeInfo =
+		vk::AccelerationStructureBuildRangeInfoKHR(primitiveCount, vertexOffset, 0, 0);
 	this->tempBuildInfo->buildGeometryInfo = vk::AccelerationStructureBuildGeometryInfoKHR(
 		vk::AccelerationStructureTypeKHR::eBottomLevel, vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace,
 		vk::BuildAccelerationStructureModeKHR::eBuild, {}, this->accelerationStructure, 1,
 		&this->tempBuildInfo->geometry);
 
-	this->tempBuildInfo->sizeInfo = nri.getDevice().getAccelerationStructureBuildSizesKHR(
+	auto sizeInfo = nri.getDevice().getAccelerationStructureBuildSizesKHR(
 		vk::AccelerationStructureBuildTypeKHR::eDevice, this->tempBuildInfo->buildGeometryInfo,
 		{this->tempBuildInfo->buildRangeInfo.primitiveCount});
 
-	dbLog(dbg::LOG_DEBUG, "BLAS size info: AS size = ", this->tempBuildInfo->sizeInfo.accelerationStructureSize,
-		  " bytes\n\tScratch size = ", this->tempBuildInfo->sizeInfo.buildScratchSize, " bytes");
-
-	this->asBuffer = VulkanNRIBuffer(nri, this->tempBuildInfo->sizeInfo.accelerationStructureSize,
-									 NRI::BufferUsage::BUFFER_USAGE_ACCELERATION_STRUCTURE);
+	this->asBuffer =
+		VulkanNRIBuffer(nri, sizeInfo.accelerationStructureSize, NRI::BufferUsage::BUFFER_USAGE_ACCELERATION_STRUCTURE);
 	this->asMemory = VulkanNRIAllocation(
 		nri, asBuffer.getMemoryRequirements().setTypeRequest(NRI::MemoryTypeRequest::MEMORY_TYPE_DEVICE));
 	this->asBuffer.bindMemory(asMemory, 0);
 
-	vk::AccelerationStructureCreateInfoKHR asCreateInfo({}, asBuffer.getBuffer(), 0,
-														this->tempBuildInfo->sizeInfo.accelerationStructureSize,
+	vk::AccelerationStructureCreateInfoKHR asCreateInfo({}, asBuffer.getBuffer(), 0, sizeInfo.accelerationStructureSize,
 														vk::AccelerationStructureTypeKHR::eBottomLevel);
 
 	this->tempBuildInfo->scratchBuffer =
-		VulkanNRIBuffer(nri, this->tempBuildInfo->sizeInfo.buildScratchSize,
+		VulkanNRIBuffer(nri, sizeInfo.buildScratchSize,
 						NRI::BufferUsage::BUFFER_USAGE_STORAGE | NRI::BufferUsage::BUFFER_USAGE_TRANSFER_SRC |
 							NRI::BufferUsage::BUFFER_USAGE_TRANSFER_DST);
+
 	this->tempBuildInfo->scratchMemory =
 		VulkanNRIAllocation(nri, tempBuildInfo->scratchBuffer.getMemoryRequirements().setTypeRequest(
 									 NRI::MemoryTypeRequest::MEMORY_TYPE_DEVICE));
 	this->tempBuildInfo->scratchBuffer.bindMemory(this->tempBuildInfo->scratchMemory, 0);
 
-	this->tempBuildInfo->buildGeometryInfo.scratchData.setDeviceAddress(this->tempBuildInfo->scratchBuffer.getAddress());
-	std::cout << "Scratch buffer address: " << std::hex
-			  << this->tempBuildInfo->scratchBuffer.getAddress() << std::dec << std::endl;
+	this->tempBuildInfo->buildGeometryInfo.scratchData.setDeviceAddress(
+		this->tempBuildInfo->scratchBuffer.getAddress());
+	std::cout << "Scratch buffer address: " << std::hex << this->tempBuildInfo->scratchBuffer.getAddress() << std::dec
+			  << std::endl;
 
-	this->accelerationStructure						   = nri.getDevice().createAccelerationStructureKHR(asCreateInfo);
+	this->accelerationStructure = nri.getDevice().createAccelerationStructureKHR(asCreateInfo);
 	this->tempBuildInfo->buildGeometryInfo.dstAccelerationStructure = this->accelerationStructure;
 }
 
@@ -1374,8 +1373,8 @@ void VulkanNRIBLAS::build(NRICommandBuffer &commandBuffer) {
 	auto &vkCmdBuf = static_cast<VulkanNRICommandBuffer &>(commandBuffer);
 
 	assert(this->tempBuildInfo != nullptr);
-	auto &buildGeometryInfo = this->tempBuildInfo->buildGeometryInfo;
-	auto &buildRangeInfos	= this->tempBuildInfo->buildRangeInfo;
+	const auto &buildGeometryInfo = this->tempBuildInfo->buildGeometryInfo;
+	const auto &buildRangeInfos	  = this->tempBuildInfo->buildRangeInfo;
 
 	vk::MemoryBarrier memoryBarrier(vk::AccessFlagBits::eAccelerationStructureWriteKHR,
 									vk::AccessFlagBits::eAccelerationStructureReadKHR);
@@ -1405,6 +1404,128 @@ void VulkanNRIBLAS::build(NRICommandBuffer &commandBuffer) {
 	this->tempBuildInfo.reset();
 }
 
+vk::DeviceAddress VulkanNRIBLAS::getAddress() const {
+	vk::AccelerationStructureDeviceAddressInfoKHR addressInfo(this->accelerationStructure);
+	return nri->getDevice().getAccelerationStructureAddressKHR(addressInfo);
+}
+
+VulkanNRITLAS::VulkanNRITLAS(VulkanNRI &nri, const std::span<const NRIBLAS *> &blases,
+							 std::optional<std::span<glm::mat4x3>> transforms)
+	: nri(&nri), as(nullptr), asBuffer(nullptr), asMemory(nullptr) {
+	tempBuildInfo = std::make_unique<TemporaryBuildInfo>();
+
+	tempBuildInfo->instanceUploadBuffer =
+		VulkanNRIBuffer(nri, sizeof(vk::AccelerationStructureInstanceKHR) * blases.size(),
+						NRI::BufferUsage::BUFFER_USAGE_TRANSFER_SRC | NRI::BufferUsage::BUFFER_USAGE_TRANSFER_DST);
+	tempBuildInfo->instanceUploadMemory =
+		VulkanNRIAllocation(nri, tempBuildInfo->instanceBuffer.getMemoryRequirements().setTypeRequest(
+									 NRI::MemoryTypeRequest::MEMORY_TYPE_UPLOAD));
+	tempBuildInfo->instanceUploadBuffer.bindMemory(tempBuildInfo->instanceMemory, 0);
+	{
+		vk::AccelerationStructureInstanceKHR *data =
+			(vk::AccelerationStructureInstanceKHR *)tempBuildInfo->instanceUploadBuffer.map(
+				0, tempBuildInfo->instanceUploadBuffer.getSize());
+		std::span<vk::AccelerationStructureInstanceKHR> instances{data,
+																  data + tempBuildInfo->instanceUploadBuffer.getSize()};
+
+		int i = 0;
+		for (const auto &blas : blases) {
+			auto								 &vulkanBLAS = static_cast<const VulkanNRIBLAS &>(*blas);
+			vk::AccelerationStructureInstanceKHR &instance	 = instances[i++];
+			if (transforms.has_value()) {
+				auto &t = transforms.value()[instances.size()];
+				std::memcpy(&instance.transform.matrix, &t, sizeof(glm::mat4x3));
+			} else {
+				glm::mat4x3 identity = glm::mat4x3(1.0f);
+				std::memcpy(&instance.transform.matrix, &identity, sizeof(glm::mat4x3));
+			}
+			instance.instanceCustomIndex					= 0;
+			instance.mask									= 0xFF;
+			instance.instanceShaderBindingTableRecordOffset = 0;
+			instance.flags = (VkGeometryInstanceFlagsKHR)vk::GeometryInstanceFlagBitsKHR::eTriangleFacingCullDisable;
+			instance.accelerationStructureReference = vulkanBLAS.getAddress();
+			++i;
+		}
+		tempBuildInfo->instanceUploadBuffer.unmap();
+	}
+
+	// allocate instance buffer
+	tempBuildInfo->instanceBuffer = VulkanNRIBuffer(nri, tempBuildInfo->instanceUploadBuffer.getSize(),
+													NRI::BufferUsage::BUFFER_USAGE_ACCELERATION_STRUCTURE |
+														NRI::BufferUsage::BUFFER_USAGE_TRANSFER_DST |
+														NRI::BufferUsage::BUFFER_USAGE_ACCELERATION_STRUCTURE);
+	tempBuildInfo->instanceMemory =
+		VulkanNRIAllocation(nri, tempBuildInfo->instanceBuffer.getMemoryRequirements().setTypeRequest(
+									 NRI::MemoryTypeRequest::MEMORY_TYPE_DEVICE));
+	tempBuildInfo->instanceBuffer.bindMemory(tempBuildInfo->instanceMemory, 0);
+	// will copy to it later
+
+	// get size info
+	vk::AccelerationStructureGeometryInstancesDataKHR instancesData(VK_FALSE,
+																	tempBuildInfo->instanceBuffer.getAddress());
+	tempBuildInfo->geometry = vk::AccelerationStructureGeometryKHR(vk::GeometryTypeKHR::eInstances, instancesData,
+																   vk::GeometryFlagBitsKHR::eOpaque);
+
+	tempBuildInfo->buildRangeInfo	 = vk::AccelerationStructureBuildRangeInfoKHR(blases.size(), 0, 0, 0);
+	tempBuildInfo->buildGeometryInfo = vk::AccelerationStructureBuildGeometryInfoKHR(
+		vk::AccelerationStructureTypeKHR::eTopLevel, vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace,
+		vk::BuildAccelerationStructureModeKHR::eBuild, {}, as, 1, &tempBuildInfo->geometry, nullptr, nullptr);
+
+	vk::AccelerationStructureBuildSizesInfoKHR sizeInfo = nri.getDevice().getAccelerationStructureBuildSizesKHR(
+		vk::AccelerationStructureBuildTypeKHR::eDevice, tempBuildInfo->buildGeometryInfo,
+		{tempBuildInfo->buildRangeInfo.primitiveCount});
+
+	// create AS buffer and AS itself
+	this->asBuffer =
+		VulkanNRIBuffer(nri, sizeInfo.accelerationStructureSize, NRI::BufferUsage::BUFFER_USAGE_ACCELERATION_STRUCTURE);
+	this->asMemory = VulkanNRIAllocation(
+		nri, asBuffer.getMemoryRequirements().setTypeRequest(NRI::MemoryTypeRequest::MEMORY_TYPE_DEVICE));
+	this->asBuffer.bindMemory(asMemory, 0);
+
+	vk::AccelerationStructureCreateInfoKHR asCreateInfo({}, asBuffer.getBuffer(), 0,
+														sizeInfo.accelerationStructureSize);
+	this->as = nri.getDevice().createAccelerationStructureKHR(asCreateInfo);
+
+	// create scratch buffer
+	tempBuildInfo->scratchBuffer =
+		VulkanNRIBuffer(nri, sizeInfo.buildScratchSize,
+						NRI::BufferUsage::BUFFER_USAGE_STORAGE | NRI::BufferUsage::BUFFER_USAGE_TRANSFER_SRC |
+							NRI::BufferUsage::BUFFER_USAGE_TRANSFER_DST);
+	tempBuildInfo->scratchMemory =
+		VulkanNRIAllocation(nri, tempBuildInfo->scratchBuffer.getMemoryRequirements().setTypeRequest(
+									 NRI::MemoryTypeRequest::MEMORY_TYPE_DEVICE));
+	tempBuildInfo->scratchBuffer.bindMemory(tempBuildInfo->scratchMemory, 0);
+
+	tempBuildInfo->buildGeometryInfo.scratchData.setDeviceAddress(tempBuildInfo->scratchBuffer.getAddress());
+}
+
+void VulkanNRITLAS::build(NRICommandBuffer &commandBuffer) {
+	auto &vkCmdBuf = static_cast<VulkanNRICommandBuffer &>(commandBuffer);
+	assert(this->tempBuildInfo != nullptr);
+	vkCmdBuf.begin();
+
+	tempBuildInfo->instanceBuffer.copyFrom(commandBuffer, tempBuildInfo->instanceUploadBuffer, 0, 0,
+										   tempBuildInfo->instanceUploadBuffer.getSize());
+
+	vk::BufferMemoryBarrier instanceBufferBarrier(
+		vk::AccessFlagBits::eTransferWrite, vk::AccessFlagBits::eAccelerationStructureReadKHR, VK_QUEUE_FAMILY_IGNORED,
+		VK_QUEUE_FAMILY_IGNORED, this->tempBuildInfo->instanceBuffer.getBuffer(), 0,
+		this->tempBuildInfo->instanceBuffer.getSize());
+	vkCmdBuf.commandBuffer.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
+										   vk::PipelineStageFlagBits::eAccelerationStructureBuildKHR, {}, {},
+										   {instanceBufferBarrier}, {});
+
+	vkCmdBuf.commandBuffer.buildAccelerationStructuresKHR({this->tempBuildInfo->buildGeometryInfo},
+														  &this->tempBuildInfo->buildRangeInfo);
+
+	vk::MemoryBarrier postBuildBarrier(vk::AccessFlagBits::eAccelerationStructureWriteKHR,
+									   vk::AccessFlagBits::eAccelerationStructureReadKHR);
+	vkCmdBuf.commandBuffer.pipelineBarrier(vk::PipelineStageFlagBits::eAccelerationStructureBuildKHR,
+										   vk::PipelineStageFlagBits::eRayTracingShaderKHR, {}, {postBuildBarrier}, {},
+										   {});
+	this->tempBuildInfo.reset();
+}
+
 std::unique_ptr<NRIBLAS> VulkanNRI::createBLAS(NRIBuffer &vertexBuffer, NRI::Format vertexFormat,
 											   std::size_t vertexOffset, uint32_t vertexCount, std::size_t vertexStride,
 											   NRIBuffer &indexBuffer, NRI::IndexType indexType,
@@ -1412,6 +1533,11 @@ std::unique_ptr<NRIBLAS> VulkanNRI::createBLAS(NRIBuffer &vertexBuffer, NRI::For
 	return std::make_unique<VulkanNRIBLAS>(*this, static_cast<VulkanNRIBuffer &>(vertexBuffer), vertexFormat,
 										   vertexOffset, vertexCount, vertexStride,
 										   static_cast<VulkanNRIBuffer &>(indexBuffer), indexType, indexOffset);
+}
+
+std::unique_ptr<NRITLAS> VulkanNRI::createTLAS(const std::span<const NRIBLAS *>		&blases,
+											   std::optional<std::span<glm::mat4x3>> transforms) {
+	return std::make_unique<VulkanNRITLAS>(*this, blases, transforms);
 }
 
 std::unique_ptr<NRIAllocation> VulkanNRI::allocateMemory(NRI::MemoryRequirements memoryRequirements) {

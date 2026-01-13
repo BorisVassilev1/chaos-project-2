@@ -28,6 +28,7 @@ class Scene {
 
 	std::vector<std::unique_ptr<NRIAllocation>>	memoryAllocations;
 
+	std::unique_ptr<NRITLAS> tlas;
    public:
 	Scene() = default;
 	Scene(NRI &nri, NRICommandQueue &q, const std::string_view &filename);
