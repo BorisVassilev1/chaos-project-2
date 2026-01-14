@@ -17,6 +17,7 @@
 class VulkanNRI;
 class VulkanNRIBuffer;
 class VulkanNRIImage2D;
+class VulkanNRITLAS;
 
 /// A helper class to manage ownership of an object or a reference to an object
 /// template arguments can be for example: <vk::raii::Buffer, vk::Buffer>
@@ -49,12 +50,14 @@ class VulkanDescriptorAllocator {
 
 	int currentBufferDescriptorIndex = 0;
 	int currentImageDescriptorIndex	 = 0;
+	int currentASDescriptorIndex	 = 0;
 
    public:
 	VulkanDescriptorAllocator(VulkanNRI &nri);
 
 	NRIResourceHandle addUniformBufferDescriptor(VulkanNRIBuffer &buffer);
 	NRIResourceHandle addSamplerImageDescriptor(VulkanNRIImage2D &image);
+	NRIResourceHandle addAccelerationStructureDescriptor(VulkanNRITLAS &tlas);
 
 	auto	   &getDescriptorSet() { return bigDescriptorSet; }
 	const auto &getDescriptorSet() const { return bigDescriptorSet; }
@@ -333,6 +336,7 @@ class VulkanNRITLAS : public NRITLAS {
 	vk::raii::AccelerationStructureKHR as;
 	VulkanNRIBuffer					   asBuffer;
 	VulkanNRIAllocation				   asMemory;
+	NRIResourceHandle				   handle = NRIResourceHandle::INVALID_HANDLE;
 
 	struct TemporaryBuildInfo {
 		vk::AccelerationStructureGeometryKHR		  geometry;
@@ -356,6 +360,7 @@ class VulkanNRITLAS : public NRITLAS {
 
 	void build(NRICommandBuffer &commandBuffer) override;
 	void buildFinished() override;
+	NRIResourceHandle getHandle() override;
 
 	auto	   &getTLAS() { return as; }
 	const auto &getTLAS() const { return as; }
@@ -443,6 +448,8 @@ class VulkanNRI : public NRI {
 	}
 
 	bool shouldFlipY() const override { return true; }
+	bool supportsRayTracing() const override { return true; }
+	bool supportsTextures() const override { return true; }
 	void synchronize() const override { device.waitIdle(); }
 
    private:

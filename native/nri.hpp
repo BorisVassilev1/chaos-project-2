@@ -25,6 +25,8 @@ class NRIBLAS;
 class NRITLAS;
 class Renderer;
 
+class NRIResourceHandle;
+
 /// NRI - Native Rendering Interface
 class NRI {
    public:
@@ -278,7 +280,9 @@ class NRI {
 	virtual std::unique_ptr<NRITLAS> createTLAS(const std::span<const NRIBLAS *>	 &blases,
 												std::optional<std::span<glm::mat4x3>> transforms = std::nullopt) = 0;
 
-	virtual bool shouldFlipY() const = 0;
+	virtual bool shouldFlipY() const		= 0;
+	virtual bool supportsRayTracing() const = 0;
+	virtual bool supportsTextures() const	= 0;
 
 	virtual void synchronize() const = 0;
 };
@@ -303,10 +307,10 @@ class NRIResourceHandle final {
 
    public:
 	enum ResourceType {
-		RESOURCE_TYPE_IMAGE_SAMPLER	 = 0,
-		RESOURCE_TYPE_STORAGE_IMAGE	 = 1,
-		RESOURCE_TYPE_UNIFORM_BUFFER = 2,
-		RESOURCE_TYPE_STORAGE_BUFFER = 3,
+		RESOURCE_TYPE_IMAGE_SAMPLER = 0,
+		RESOURCE_TYPE_STORAGE_IMAGE = 1,
+		RESOURCE_TYPE_BUFFER		= 2,
+		RESOURCE_TYPE_TLAS			= 3,
 	};
 	NRIResourceHandle(ResourceType type, bool writable, uint32_t index);
 	NRIResourceHandle() {}
@@ -454,6 +458,8 @@ class NRITLAS {
    public:
 	virtual void build(NRICommandBuffer &commandBuffer) = 0;
 	virtual void buildFinished() {}
+
+	virtual NRIResourceHandle getHandle() = 0;
 
 	virtual ~NRITLAS() {}
 };

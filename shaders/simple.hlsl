@@ -23,7 +23,7 @@ struct PushConstants
 	TextureHandle texture;
 };
 
-[[vk::push_constant]]
+VK_PUSH_CONST_ATTR
 PushConstants pushConstants : register(b0);
 
 [shader("vertex")]

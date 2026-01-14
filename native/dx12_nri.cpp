@@ -1,8 +1,9 @@
-#if defined(_WIN32) && defined(NRI_DX12)
+#if defined(_WIN32)		//&& defined(NRI_DX12)
 	#include <windows.h>
 	#include <wrl/client.h>
 	#include "dx12_nri.hpp"
-	#include <dxcapi.h>
+	// #include <dxcapi.h>
+	#include "dxc_include_handler.hpp"
 	#include "nriFactory.hpp"
 	#include "../beamcast/utils.hpp"
 
@@ -297,7 +298,6 @@ DX12NRI::~DX12NRI() {
 }
 
 std::unique_ptr<NRIBuffer> DX12NRI::createBuffer(std::size_t size, BufferUsage usage) {
-	std::cout << "Creating Buffer - Size: " << size << ", Usage: " << usage << std::endl;
 	D3D12_RESOURCE_DESC desc = {};
 	desc.Dimension			 = D3D12_RESOURCE_DIMENSION_BUFFER;
 	desc.Width				 = size;
@@ -430,20 +430,24 @@ NRI::MemoryRequirements DX12NRIImage2D::getMemoryRequirements() {
 }
 
 void DX12NRIImage2D::bindMemory(NRIAllocation &allocation, std::size_t offset) {
-	DX12NRIAllocation &alloc	  = static_cast<DX12NRIAllocation &>(allocation);
-	D3D12_CLEAR_VALUE  clearValue = {};
-	if (resourceDesc.Format == DXGI_FORMAT_D24_UNORM_S8_UINT || resourceDesc.Format == DXGI_FORMAT_D32_FLOAT) {
-		clearValue.DepthStencil = {1.0f, 0};
-		clearValue.Format		= resourceDesc.Format;
-	} else {
-		clearValue.Color[0] = 0.0f;
-		clearValue.Color[1] = 0.0f;
-		clearValue.Color[2] = 0.0f;
-		clearValue.Color[3] = 0.0f;
-		clearValue.Format	= resourceDesc.Format;
+	DX12NRIAllocation &alloc				= static_cast<DX12NRIAllocation &>(allocation);
+	D3D12_CLEAR_VALUE *pOptimizedClearValue = nullptr;
+	if (usage & NRI::IMAGE_USAGE_COLOR_ATTACHMENT || usage & NRI::IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT) {
+		D3D12_CLEAR_VALUE clearValue = {};
+		if (resourceDesc.Format == DXGI_FORMAT_D24_UNORM_S8_UINT || resourceDesc.Format == DXGI_FORMAT_D32_FLOAT) {
+			clearValue.DepthStencil = {1.0f, 0};
+			clearValue.Format		= resourceDesc.Format;
+		} else {
+			clearValue.Color[0] = 0.0f;
+			clearValue.Color[1] = 0.0f;
+			clearValue.Color[2] = 0.0f;
+			clearValue.Color[3] = 0.0f;
+			clearValue.Format	= resourceDesc.Format;
+		}
+		pOptimizedClearValue = &clearValue;
 	}
-	nri.getDevice()->CreatePlacedResource(*alloc, offset, &resourceDesc, D3D12_RESOURCE_STATE_COMMON, &clearValue,
-										  IID_PPV_ARGS(&resource));
+	nri.getDevice()->CreatePlacedResource(*alloc, offset, &resourceDesc, D3D12_RESOURCE_STATE_COMMON,
+										  pOptimizedClearValue, IID_PPV_ARGS(&resource));
 	// TODO: We need a full-featured view creation system, not this implicit bullshit
 	if (resourceDesc.Format == DXGI_FORMAT_D24_UNORM_S8_UINT || resourceDesc.Format == DXGI_FORMAT_D32_FLOAT) {
 		D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc = {};
@@ -454,7 +458,7 @@ void DX12NRIImage2D::bindMemory(NRIAllocation &allocation, std::size_t offset) {
 
 		viewHandle = nri.getDescriptorAllocator().allocateDsv();
 		nri.getDevice()->CreateDepthStencilView(resource.Get(), &dsvDesc, viewHandle);
-	} else {
+	} else if (usage & NRI::IMAGE_USAGE_COLOR_ATTACHMENT) {
 		D3D12_RENDER_TARGET_VIEW_DESC rtvDesc = {};
 		rtvDesc.Format						  = resourceDesc.Format;
 		rtvDesc.ViewDimension				  = D3D12_RTV_DIMENSION_TEXTURE2D;
@@ -463,6 +467,19 @@ void DX12NRIImage2D::bindMemory(NRIAllocation &allocation, std::size_t offset) {
 
 		viewHandle = nri.getDescriptorAllocator().allocateRtv();
 		nri.getDevice()->CreateRenderTargetView(resource.Get(), &rtvDesc, viewHandle);
+	} else {
+		// allocate sampler or SRV/UAV descriptor as needed
+		D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+		srvDesc.Format							= resourceDesc.Format;
+		srvDesc.ViewDimension					= D3D12_SRV_DIMENSION_TEXTURE2D;
+		srvDesc.Texture2D.MostDetailedMip		= 0;
+		srvDesc.Texture2D.MipLevels				= 1;
+		srvDesc.Texture2D.PlaneSlice			= 0;
+		srvDesc.Texture2D.ResourceMinLODClamp	= 0.0f;
+		srvDesc.Shader4ComponentMapping			= D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+
+		viewHandle = nri.getDescriptorAllocator().allocateCbvSrvUav();
+		nri.getDevice()->CreateShaderResourceView(resource.Get(), &srvDesc, viewHandle);
 	}
 }
 
@@ -492,11 +509,35 @@ void DX12NRIImage2D::clear(NRICommandBuffer &commandBuffer, glm::vec4 color) {
 	float clearColor[4] = {color.r, color.g, color.b, color.a};
 	dxCmdBuffer->ClearRenderTargetView(viewHandle, clearColor, 0, nullptr);
 }
+void DX12NRIImage2D::copyFrom(NRICommandBuffer &commandBuffer, NRIBuffer &srcBuffer, std::size_t srcOffset,
+							  uint32_t srcRowPitch) {
+	DX12NRICommandBuffer &dxCmdBuffer = static_cast<DX12NRICommandBuffer &>(commandBuffer);
+	DX12NRIBuffer		 &dxSrcBuffer = static_cast<DX12NRIBuffer &>(srcBuffer);
+	dxCmdBuffer.begin();
+	transitionState(commandBuffer, D3D12_RESOURCE_STATE_COPY_DEST);
+	D3D12_TEXTURE_COPY_LOCATION dstLocation		  = {};
+	dstLocation.pResource						  = resource.Get();
+	dstLocation.Type							  = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+	dstLocation.SubresourceIndex				  = 0;
+	D3D12_TEXTURE_COPY_LOCATION srcLocation		  = {};
+	srcLocation.pResource						  = *dxSrcBuffer;
+	srcLocation.Type							  = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+	D3D12_PLACED_SUBRESOURCE_FOOTPRINT &footprint = srcLocation.PlacedFootprint;
+	footprint.Offset							  = srcOffset;
+	footprint.Footprint.Format					  = resourceDesc.Format;
+	footprint.Footprint.Width					  = width;
+	footprint.Footprint.Height					  = height;
+	footprint.Footprint.Depth					  = 1;
+	footprint.Footprint.RowPitch				  = srcRowPitch == 0 ? width * 4 : srcRowPitch;
+	dxCmdBuffer->CopyTextureRegion(&dstLocation, 0, 0, 0, &srcLocation, nullptr);
+}
 
 void DX12NRIImage2D::prepareForPresent(NRICommandBuffer &commandBuffer) {
 	static_cast<DX12NRICommandBuffer &>(commandBuffer).begin();
 	transitionState(commandBuffer, D3D12_RESOURCE_STATE_PRESENT);
 }
+
+NRIResourceHandle DX12NRIImage2D::getImageViewHandle() { throw std::runtime_error("Not implemented yet."); }
 
 std::unique_ptr<NRIAllocation> DX12NRI::allocateMemory(MemoryRequirements memoryRequirements) {
 	return std::make_unique<DX12NRIAllocation>(*this, memoryRequirements);
@@ -552,23 +593,26 @@ DX12NRICommandBuffer::DX12NRICommandBuffer(ID3D12CommandAllocator *cmdAlloc, ID3
 
 DX12NRIProgramBuilder::DX12NRIProgramBuilder(DX12NRI &nri) : nri(nri) {}
 
+// TODO: merge this with Vulkan implementation. It's almost identical. (or just write another compiler)
 std::vector<ComPtr<ID3DBlob>> DX12NRIProgramBuilder::compileShaderModules(
 	const std::vector<NRI::ShaderCreateInfo> &shaderCreateInfos) {
-	IDxcCompiler3 *compiler = nullptr;
-	HRESULT		   hr		= DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&compiler));
+	ComPtr<IDxcCompiler3> compiler = nullptr;
+	HRESULT				  hr	   = DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&compiler));
 	assert(SUCCEEDED(hr) && "Failed to create DX Compiler.");
 
-	IDxcUtils *utils;
+	ComPtr<IDxcUtils> utils;
 	hr = DxcCreateInstance(CLSID_DxcUtils, IID_PPV_ARGS(&utils));
 	assert(SUCCEEDED(hr) && "Failed to create DX Utils.");
+
+	ComPtr<CustomIncludeHandler> includeHandler = new CustomIncludeHandler(utils.Get());
 
 	std::vector<ComPtr<ID3DBlob>> shaderBlobs;
 	for (const auto &shaderCreateInfo : shaderCreateInfos) {
 		ComPtr<ID3DBlob> shaderBlob;
 		ComPtr<ID3DBlob> errorBlob;
 
-		std::vector<uint8_t> sourceCode;
-		IDxcBlobEncoding	*sourceBlob;
+		std::vector<uint8_t>	 sourceCode;
+		ComPtr<IDxcBlobEncoding> sourceBlob;
 		std::wstring wSourceFile = std::wstring(shaderCreateInfo.sourceFile.begin(), shaderCreateInfo.sourceFile.end());
 		HRESULT		 hr			 = utils->LoadFile(wSourceFile.c_str(), nullptr, &sourceBlob);
 		if (FAILED(hr)) {
@@ -582,28 +626,38 @@ std::vector<ComPtr<ID3DBlob>> DX12NRIProgramBuilder::compileShaderModules(
 		arguments.push_back(L"-D");
 		arguments.push_back(L"DX12");
 		arguments.push_back(L"-T");
-
 		switch (shaderCreateInfo.shaderType) {
-			case NRI::ShaderType::SHADER_TYPE_VERTEX: arguments.push_back(L"vs_6_0"); break;
-			case NRI::ShaderType::SHADER_TYPE_FRAGMENT: arguments.push_back(L"ps_6_0"); break;
+			case NRI::ShaderType::SHADER_TYPE_VERTEX: arguments.push_back(L"vs_6_5"); break;
+			case NRI::ShaderType::SHADER_TYPE_FRAGMENT: arguments.push_back(L"ps_6_5"); break;
+			case NRI::ShaderType::SHADER_TYPE_COMPUTE: arguments.push_back(L"cs_6_5"); break;
+			case NRI::ShaderType::SHADER_TYPE_RAYGEN: arguments.push_back(L"lib_6_5"); break;
+			case NRI::ShaderType::SHADER_TYPE_CLOSEST_HIT: arguments.push_back(L"lib_6_5"); break;
+			case NRI::ShaderType::SHADER_TYPE_ANY_HIT: arguments.push_back(L"lib_6_5"); break;
+			case NRI::ShaderType::SHADER_TYPE_MISS: arguments.push_back(L"lib_6_5"); break;
 			default: throw std::runtime_error("Unsupported shader stage!");
 		}
+		arguments.push_back(L"-I");
+		arguments.push_back(PROJECT_ROOT_DIR L"/shaders/");
+		arguments.push_back(L"-HV");
+		arguments.push_back(L"2021");
 
 		DxcBuffer buffer{};
 		buffer.Ptr		= sourceBlob->GetBufferPointer();
 		buffer.Size		= sourceBlob->GetBufferSize();
 		buffer.Encoding = 0;
 
-		std::cout << "Compiling shader: " << shaderCreateInfo.sourceFile << std::endl;
+		dbLog(dbg::LOG_DEBUG, "\n\tCompiling shader: ", shaderCreateInfo.sourceFile,
+			  "\n\tEntry Point: ", shaderCreateInfo.entryPoint);
 
-		IDxcResult *result;
-		hr = compiler->Compile(&buffer, arguments.data(), static_cast<UINT32>(arguments.size()), nullptr,
+		ComPtr<IDxcResult> result;
+		hr = compiler->Compile(&buffer, arguments.data(), static_cast<UINT32>(arguments.size()), includeHandler.Get(),
 							   IID_PPV_ARGS(&result));
 		if (FAILED(hr)) {
 			throw std::runtime_error("Failed to compile shader: " + std::string(shaderCreateInfo.sourceFile));
 		}
+		includeHandler->reset();
 
-		IDxcBlobEncoding *errorBuffer;
+		ComPtr<IDxcBlobEncoding> errorBuffer;
 		result->GetErrorBuffer(&errorBuffer);
 		if (errorBuffer != nullptr && errorBuffer->GetBufferSize() > 0) {
 			std::string errorMessage(reinterpret_cast<const char *>(errorBuffer->GetBufferPointer()),
@@ -642,7 +696,7 @@ D3D12_PRIMITIVE_TOPOLOGY_TYPE nriPrimitiveTopology2d3d12TopologyType[] = {
 std::unique_ptr<NRIGraphicsProgram> DX12NRIProgramBuilder::buildGraphicsProgram() {
 	auto shaderBlobs = compileShaderModules(shaderStagesInfo);
 
-	std::vector<D3D12_ROOT_PARAMETER1> pushConstantRanges;
+	std::vector<D3D12_ROOT_PARAMETER1> rootParams;
 	for (const auto &pushConstantRange : this->pushConstantRanges) {
 		if (pushConstantRange.size % 4 != 0 || pushConstantRange.offset % 4 != 0) {
 			dbLog(dbg::LOG_WARNING,
@@ -661,15 +715,51 @@ std::unique_ptr<NRIGraphicsProgram> DX12NRIProgramBuilder::buildGraphicsProgram(
 		rootParam.ParameterType			= D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
 		rootParam.Constants				= rootConstants;
 		rootParam.ShaderVisibility		= D3D12_SHADER_VISIBILITY_ALL;
-		pushConstantRanges.push_back(rootParam);
+		rootParams.push_back(rootParam);
+	}
+
+	D3D12_DESCRIPTOR_RANGE1 ranges[4];
+	ranges[0].RangeType			 = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+	ranges[0].NumDescriptors	 = 100;
+	ranges[0].BaseShaderRegister = 0;
+	ranges[0].RegisterSpace		 = 0;
+	ranges[0].Flags				 = D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC;
+
+	ranges[1].RangeType			 = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+	ranges[1].NumDescriptors	 = 100;
+	ranges[1].BaseShaderRegister = 0;
+	ranges[1].RegisterSpace		 = 0;
+	ranges[1].Flags				 = D3D12_DESCRIPTOR_RANGE_FLAG_DATA_VOLATILE;
+
+	ranges[2].RangeType			 = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER;
+	ranges[2].NumDescriptors	 = 100;
+	ranges[2].BaseShaderRegister = 0;
+	ranges[2].RegisterSpace		 = 0;
+	ranges[2].Flags				 = D3D12_DESCRIPTOR_RANGE_FLAG_NONE;
+
+	ranges[3].RangeType			 = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+	ranges[3].NumDescriptors	 = 100;
+	ranges[3].BaseShaderRegister = 100;
+	ranges[3].RegisterSpace		 = 0;
+	ranges[3].Flags				 = D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC;
+
+	for (int i = 0; i < 4; i++) {
+		D3D12_ROOT_PARAMETER1		 rootParam		 = {};
+		D3D12_ROOT_DESCRIPTOR_TABLE1 descriptorTable = {};
+		descriptorTable.NumDescriptorRanges			 = 1;
+		descriptorTable.pDescriptorRanges			 = &ranges[i];
+		rootParam.ParameterType						 = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+		rootParam.DescriptorTable					 = descriptorTable;
+		rootParam.ShaderVisibility					 = D3D12_SHADER_VISIBILITY_ALL;
+		rootParams.push_back(rootParam);
 	}
 
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc{};
 
 	D3D12_ROOT_SIGNATURE_DESC1 rootSignatureDesc{};
 	rootSignatureDesc.Flags			= D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
-	rootSignatureDesc.NumParameters = pushConstantRanges.size();
-	rootSignatureDesc.pParameters	= pushConstantRanges.data();
+	rootSignatureDesc.NumParameters = rootParams.size();
+	rootSignatureDesc.pParameters	= rootParams.data();
 	D3D12_VERSIONED_ROOT_SIGNATURE_DESC versionedRootSignatureDesc{};
 	versionedRootSignatureDesc.Version	= D3D_ROOT_SIGNATURE_VERSION_1_1;
 	versionedRootSignatureDesc.Desc_1_1 = rootSignatureDesc;
@@ -794,6 +884,10 @@ std::unique_ptr<NRIComputeProgram> DX12NRIProgramBuilder::buildComputeProgram() 
 	hr = nri.getDevice()->CreateComputePipelineState(&psoDesc, IID_PPV_ARGS(&pipelineState));
 	assert(SUCCEEDED(hr) && "Failed to create compute pipeline state.");
 	return std::make_unique<DX12NRIComputeProgram>(std::move(pipelineState), std::move(rootSignature));
+}
+
+std::unique_ptr<NRIRayTracingProgram> DX12NRIProgramBuilder::buildRayTracingProgram() {
+	throw std::runtime_error("Not implemented yet.");
 }
 
 void DX12NRIProgram::bind(NRICommandBuffer &commandBuffer) {
@@ -1007,6 +1101,17 @@ void DX12NRIQWindow::endRendering(NRICommandBuffer &cmdBuf) {
 
 std::unique_ptr<NRIProgramBuilder> DX12NRI::createProgramBuilder() {
 	return std::make_unique<DX12NRIProgramBuilder>(*this);
+}
+
+std::unique_ptr<NRIBLAS> DX12NRI::createBLAS(NRIBuffer &vertexBuffer, NRI::Format vertexFormat,
+											 std::size_t vertexOffset, uint32_t vertexCount, std::size_t vertexStride,
+											 NRIBuffer &indexBuffer, NRI::IndexType indexType,
+											 std::size_t indexOffset) {
+	throw std::runtime_error("Not implemented yet.");
+}
+std::unique_ptr<NRITLAS> DX12NRI::createTLAS(const std::span<const NRIBLAS *>	  &blases,
+											 std::optional<std::span<glm::mat4x3>> transforms) {
+	throw std::runtime_error("Not implemented yet.");
 }
 
 int __reg_dx12_nri = []() {

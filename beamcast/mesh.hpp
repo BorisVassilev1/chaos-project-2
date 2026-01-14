@@ -35,21 +35,5 @@ class Mesh {
 
 class TriangleMesh : public Mesh {
    public:
-	TriangleMesh(NRI &nri, NRICommandQueue &q) : Mesh() {
-		std::vector<float> vertices = {
-			0.0f,  0.5f,  0.0f,		// Vertex 1 Position
-			-0.5f, -0.5f, 0.0f,		// Vertex 2 Position
-			0.5f,  -0.5f, 0.0f,		// Vertex 3 Position
-		};
-		std::vector<float> colors = {
-			1.0f, 0.0f, 0.0f,	  // Vertex 1 Color
-			0.0f, 1.0f, 0.0f,	  // Vertex 2 Color
-			0.0f, 0.0f, 1.0f	  // Vertex 3 Color
-		};
-		std::vector<float>	  normals(vertices.size(), 0.0f);				// Dummy normals
-		std::vector<float>	  texCoords(vertices.size() / 3 * 2, 0.0f);		// Dummy texture coordinates
-		std::vector<uint32_t> indices = {0, 1, 2};
-
-		init(nri, q, vertices, colors, normals, texCoords, indices);
-	}
+	TriangleMesh(NRI &nri, NRICommandQueue &q);
 };

@@ -335,10 +335,12 @@ void VulkanNRI::pickPhysicalDevice() {
 	if (physicalDevice == nullptr) { throw std::runtime_error("Failed to find a suitable GPU!"); }
 }
 
-static std::vector<const char *> deviceExtensions = {
-	VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME,
-	VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME, VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
-	VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME};
+static std::vector<const char *> deviceExtensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+													 VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME,
+													 VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
+													 VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
+													 VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
+													 VK_KHR_RAY_QUERY_EXTENSION_NAME};
 
 void VulkanNRI::createLogicalDevice() {
 	QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
@@ -373,14 +375,15 @@ void VulkanNRI::createLogicalDevice() {
 	vk::PhysicalDeviceBufferDeviceAddressFeatures	   bufferDeviceAddressFeature(VK_TRUE, VK_FALSE, VK_FALSE,
 																				  &dynamicRenderingFeature);
 	vk::PhysicalDeviceRayTracingPipelineFeaturesKHR	   rayTracingPipelineFeatures(VK_TRUE, VK_FALSE, VK_FALSE, VK_FALSE,
-																				  VK_TRUE, &bufferDeviceAddressFeature);
+																				  VK_FALSE, &bufferDeviceAddressFeature);
 	vk::PhysicalDeviceAccelerationStructureFeaturesKHR accelerationStructureFeatures(
 		VK_TRUE, VK_FALSE, VK_FALSE, VK_FALSE, VK_TRUE, &rayTracingPipelineFeatures);
+	vk::PhysicalDeviceRayQueryFeaturesKHR rayQueryFeatures(VK_TRUE, &accelerationStructureFeatures);
 
 	vk::DeviceCreateInfo createInfo(
 		{}, 1, &queueCreateInfo, enableValidationLayers ? static_cast<uint32_t>(validationLayers.size()) : 0,
 		enableValidationLayers ? validationLayers.data() : nullptr, static_cast<uint32_t>(deviceExtensions.size()),
-		deviceExtensions.data(), &deviceFeatures, &accelerationStructureFeatures);
+		deviceExtensions.data(), &deviceFeatures, &rayQueryFeatures);
 
 	device = vk::raii::Device(physicalDevice, createInfo);
 }
@@ -408,11 +411,12 @@ VulkanNRI::~VulkanNRI() {
 }
 VulkanDescriptorAllocator::VulkanDescriptorAllocator(VulkanNRI &nri)
 	: nri(nri), pool(nullptr), descriptorSetLayout(nullptr), bigDescriptorSet(nullptr) {
-	std::array<vk::DescriptorPoolSize, 4> poolSizes = {
+	std::array<vk::DescriptorPoolSize, 5> poolSizes = {
 		vk::DescriptorPoolSize(vk::DescriptorType::eCombinedImageSampler, 500),
 		vk::DescriptorPoolSize(vk::DescriptorType::eStorageImage, 500),
 		vk::DescriptorPoolSize(vk::DescriptorType::eUniformBuffer, 500),
 		vk::DescriptorPoolSize(vk::DescriptorType::eStorageBuffer, 500),
+		vk::DescriptorPoolSize(vk::DescriptorType::eAccelerationStructureKHR, 50),
 	};
 
 	vk::DescriptorPoolCreateInfo poolInfo(
@@ -421,7 +425,7 @@ VulkanDescriptorAllocator::VulkanDescriptorAllocator(VulkanNRI &nri)
 
 	pool = vk::raii::DescriptorPool(nri.getDevice(), poolInfo);
 
-	std::array<vk::DescriptorSetLayoutBinding, 4> samplerBindings = {
+	std::array<vk::DescriptorSetLayoutBinding, 5> samplerBindings = {
 		vk::DescriptorSetLayoutBinding(0, vk::DescriptorType::eCombinedImageSampler, 500, vk::ShaderStageFlagBits::eAll,
 									   nullptr),
 		vk::DescriptorSetLayoutBinding(1, vk::DescriptorType::eStorageImage, 500, vk::ShaderStageFlagBits::eAll,
@@ -430,6 +434,8 @@ VulkanDescriptorAllocator::VulkanDescriptorAllocator(VulkanNRI &nri)
 									   nullptr),
 		vk::DescriptorSetLayoutBinding(3, vk::DescriptorType::eStorageBuffer, 500, vk::ShaderStageFlagBits::eAll,
 									   nullptr),
+		vk::DescriptorSetLayoutBinding(4, vk::DescriptorType::eAccelerationStructureKHR, 50,
+									   vk::ShaderStageFlagBits::eAll, nullptr),
 	};
 
 	vk::DescriptorSetLayoutCreateInfo layoutInfo(vk::DescriptorSetLayoutCreateFlagBits::eUpdateAfterBindPool |
@@ -438,7 +444,7 @@ VulkanDescriptorAllocator::VulkanDescriptorAllocator(VulkanNRI &nri)
 
 	const vk::DescriptorBindingFlags bindingFlags = vk::DescriptorBindingFlagBits::eUpdateAfterBind;
 
-	const vk::DescriptorBindingFlags bindingFlagsArr[] = {bindingFlags, bindingFlags, bindingFlags, bindingFlags};
+	const vk::DescriptorBindingFlags bindingFlagsArr[] = {bindingFlags, bindingFlags, bindingFlags, bindingFlags, bindingFlags};
 
 	vk::DescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsInfo(samplerBindings.size(), bindingFlagsArr);
 	layoutInfo.pNext = &bindingFlagsInfo;
@@ -459,7 +465,7 @@ NRIResourceHandle VulkanDescriptorAllocator::addUniformBufferDescriptor(VulkanNR
 
 	(*nri.getDevice()).updateDescriptorSets(1, &descriptorWrite, 0, nullptr);
 
-	return NRIResourceHandle(NRIResourceHandle::ResourceType::RESOURCE_TYPE_UNIFORM_BUFFER, false, descriptorIndex);
+	return NRIResourceHandle(NRIResourceHandle::ResourceType::RESOURCE_TYPE_BUFFER, false, descriptorIndex);
 }
 
 NRIResourceHandle VulkanDescriptorAllocator::addSamplerImageDescriptor(VulkanNRIImage2D &image) {
@@ -474,6 +480,19 @@ NRIResourceHandle VulkanDescriptorAllocator::addSamplerImageDescriptor(VulkanNRI
 	(*nri.getDevice()).updateDescriptorSets(1, &descriptorWrite, 0, nullptr);
 
 	return NRIResourceHandle(NRIResourceHandle::ResourceType::RESOURCE_TYPE_IMAGE_SAMPLER, false, descriptorIndex);
+}
+NRIResourceHandle VulkanDescriptorAllocator::addAccelerationStructureDescriptor(VulkanNRITLAS &tlas) {
+	uint32_t descriptorIndex = currentASDescriptorIndex++;
+
+	vk::WriteDescriptorSetAccelerationStructureKHR descriptorASInfo(
+		1, &*const_cast<VulkanNRITLAS &>(tlas).getTLAS());
+	vk::WriteDescriptorSet descriptorWrite(bigDescriptorSet, 4, descriptorIndex, 1,
+										   vk::DescriptorType::eAccelerationStructureKHR, nullptr, nullptr, nullptr,
+										   &descriptorASInfo);
+	(*nri.getDevice()).updateDescriptorSets(1, &descriptorWrite, 0, nullptr);
+
+	return NRIResourceHandle(NRIResourceHandle::ResourceType::RESOURCE_TYPE_TLAS, false,
+							 descriptorIndex);
 }
 
 vk::MemoryPropertyFlags typeRequest2vkMemoryProperty[] = {
@@ -946,6 +965,7 @@ vk::PrimitiveTopology nriPrimitiveType2vkTopology[] = {
 	vk::PrimitiveTopology::eLineStrip,	  vk::PrimitiveTopology::ePointList,
 };
 
+// TODO: merge with DX12 implementation
 std::pair<std::vector<vk::raii::ShaderModule>, std::vector<vk::PipelineShaderStageCreateInfo>> VulkanNRIProgramBuilder::
 	createShaderModules(std::vector<NRI::ShaderCreateInfo> &&stagesInfo, const vk::raii::Device &device) {
 	std::vector<vk::PipelineShaderStageCreateInfo> shaderStages;
@@ -993,13 +1013,13 @@ std::pair<std::vector<vk::raii::ShaderModule>, std::vector<vk::PipelineShaderSta
 		arguments.push_back(entryPoint.c_str());
 		arguments.push_back(L"-T");
 		switch (stageInfo.shaderType) {
-			case NRI::ShaderType::SHADER_TYPE_VERTEX: arguments.push_back(L"vs_6_0"); break;
-			case NRI::ShaderType::SHADER_TYPE_FRAGMENT: arguments.push_back(L"ps_6_0"); break;
-			case NRI::ShaderType::SHADER_TYPE_COMPUTE: arguments.push_back(L"cs_6_0"); break;
-			case NRI::ShaderType::SHADER_TYPE_RAYGEN: arguments.push_back(L"lib_6_3"); break;
-			case NRI::ShaderType::SHADER_TYPE_CLOSEST_HIT: arguments.push_back(L"lib_6_3"); break;
-			case NRI::ShaderType::SHADER_TYPE_ANY_HIT: arguments.push_back(L"lib_6_3"); break;
-			case NRI::ShaderType::SHADER_TYPE_MISS: arguments.push_back(L"lib_6_3"); break;
+			case NRI::ShaderType::SHADER_TYPE_VERTEX: arguments.push_back(L"vs_6_6"); break;
+			case NRI::ShaderType::SHADER_TYPE_FRAGMENT: arguments.push_back(L"ps_6_6"); break;
+			case NRI::ShaderType::SHADER_TYPE_COMPUTE: arguments.push_back(L"cs_6_6"); break;
+			case NRI::ShaderType::SHADER_TYPE_RAYGEN: arguments.push_back(L"lib_6_6"); break;
+			case NRI::ShaderType::SHADER_TYPE_CLOSEST_HIT: arguments.push_back(L"lib_6_6"); break;
+			case NRI::ShaderType::SHADER_TYPE_ANY_HIT: arguments.push_back(L"lib_6_6"); break;
+			case NRI::ShaderType::SHADER_TYPE_MISS: arguments.push_back(L"lib_6_6"); break;
 			default:
 				dbLog(dbg::LOG_ERROR, "Unsupported shader type: ", static_cast<int>(stageInfo.shaderType));
 				throw std::runtime_error("Unsupported shader stage!");
@@ -1189,8 +1209,7 @@ std::unique_ptr<NRIRayTracingProgram> VulkanNRIProgramBuilder::buildRayTracingPr
 
 	vk::RayTracingPipelineCreateInfoKHR pipelineInfo({}, static_cast<uint32_t>(shaderStages.size()),
 													 shaderStages.data(), shaderGroups.size(), shaderGroups.data(),
-													 1	   // no recursion
-													 ,
+													 1,		// no recursion for now
 													 {}, {}, {}, *pipelineLayout, {}, {});
 
 	static PFN_vkCreateRayTracingPipelinesKHR vkCreateRayTracingPipelinesKHR =
@@ -1201,7 +1220,8 @@ std::unique_ptr<NRIRayTracingProgram> VulkanNRIProgramBuilder::buildRayTracingPr
 	auto pipelines = nri.getDevice().createRayTracingPipelinesKHR(nullptr, nullptr, pipelineInfo, nullptr);
 	if (!pipelines.size()) dbLog(dbg::LOG_ERROR, "Failed to create ray tracing pipeline!");
 
-	return std::make_unique<VulkanNRIRayTracingProgram>(nri, std::move(pipelines[0]), std::move(pipelineLayout));
+	auto result = std::make_unique<VulkanNRIRayTracingProgram>(nri, std::move(pipelines[0]), std::move(pipelineLayout));
+	return result;
 }
 
 void VulkanNRIRayTracingProgram::traceRays(NRICommandBuffer &commandBuffer, uint32_t width, uint32_t height,
@@ -1209,7 +1229,9 @@ void VulkanNRIRayTracingProgram::traceRays(NRICommandBuffer &commandBuffer, uint
 	auto &vkCmdBuf = static_cast<VulkanNRICommandBuffer &>(commandBuffer);
 
 	vkCmdBuf.begin();
-	// vkCmdBuf.commandBuffer.traceRaysKHR(_, _, _, _, width, height, depth);
+	// TODO: Fill in actual SBT regions
+	vk::StridedDeviceAddressRegionKHR emptyRegion{};
+	vkCmdBuf.commandBuffer.traceRaysKHR(emptyRegion, emptyRegion, emptyRegion, emptyRegion, width, height, depth);
 };
 
 void VulkanNRIProgram::bind(NRICommandBuffer &commandBuffer) {
@@ -1603,6 +1625,13 @@ void VulkanNRITLAS::build(NRICommandBuffer &commandBuffer) {
 }
 
 void VulkanNRITLAS::buildFinished() { this->tempBuildInfo.reset(); }
+
+NRIResourceHandle VulkanNRITLAS::getHandle() {
+	if(handle == NRIResourceHandle::INVALID_HANDLE) {
+		handle = nri->getDescriptorAllocator().addAccelerationStructureDescriptor(*this);
+	}
+	return handle;
+}
 
 std::unique_ptr<NRIBLAS> VulkanNRI::createBLAS(NRIBuffer &vertexBuffer, NRI::Format vertexFormat,
 											   std::size_t vertexOffset, uint32_t vertexCount, std::size_t vertexStride,

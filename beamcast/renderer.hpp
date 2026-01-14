@@ -35,12 +35,14 @@ class BeamcastRenderer : public Renderer {
 		mesh = std::make_unique<TriangleMesh>(nri, window.getMainQueue());
 
 		scene = std::make_unique<Scene>(nri, window.getMainQueue(), PROJECT_ROOT_DIR "/export.json");
-		// scene = std::make_unique<Scene>(nri, window.getMainQueue(), PROJECT_ROOT_DIR
-		// "/../chaos-project/scenes/14/scene1.crtscene");
+		if (nri.supportsRayTracing())
+			NRIResourceHandle sceneTextureHandle = scene->getTLAS().getHandle();
 
-		std::tie(texture, textureMemory) =
-			createImage2D(PROJECT_ROOT_DIR "textures/bricks/albedo.jpg", nri, window.getMainQueue());
-		textureHandle = texture->getImageViewHandle();
+		if (nri.supportsTextures()) {
+			std::tie(texture, textureMemory) =
+				createImage2D(PROJECT_ROOT_DIR "textures/bricks/albedo.jpg", nri, window.getMainQueue());
+			textureHandle = texture->getImageViewHandle();
+		}
 
 		auto shaderBuilder = nri.createProgramBuilder();
 		shader			   = shaderBuilder->setVertexBindings(mesh->getVertexBindings())
@@ -53,10 +55,10 @@ class BeamcastRenderer : public Renderer {
 					 .buildGraphicsProgram();
 	
 		shaderBuilder = nri.createProgramBuilder();
-		rayTracingShader = shaderBuilder
+		/*rayTracingShader = shaderBuilder
 							   ->addShaderModule({PROJECT_ROOT_DIR "shaders/raygen.hlsl", "RayGenMain",
 												  NRI::ShaderType::SHADER_TYPE_RAYGEN})
-							   .buildRayTracingProgram();
+							   .buildRayTracingProgram();*/
 
 		dbLog(dbg::LOG_INFO, "Renderer initialized.");
 

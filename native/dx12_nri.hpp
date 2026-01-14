@@ -1,7 +1,7 @@
 #pragma once
 #include "nri.hpp"
 
-#if defined(_WIN32) && defined(NRI_DX12)
+#if defined(_WIN32) //&& defined(NRI_DX12)
 	#include <dxgi1_6.h>
 	#include <d3d12.h>
 	#include <wrl.h>
@@ -72,6 +72,8 @@ class DX12NRIBuffer : public NRIBuffer {
 	void bindAsVertexBuffer(NRICommandBuffer &commandBuffer, uint32_t binding, std::size_t offset,
 							std::size_t stride) override;
 	void bindAsIndexBuffer(NRICommandBuffer &commandBuffer, std::size_t offset, NRI::IndexType indexType) override;
+
+	ID3D12Resource *operator*() const { return resource.Get(); }
 };
 
 class DX12NRIImage2D : public NRIImage2D {
@@ -103,12 +105,16 @@ class DX12NRIImage2D : public NRIImage2D {
 	void					bindMemory(NRIAllocation &allocation, std::size_t offset) override;
 
 	void clear(NRICommandBuffer &commandBuffer, glm::vec4 color) override;
+	void copyFrom(NRICommandBuffer &commandBuffer, NRIBuffer &srcBuffer, std::size_t srcOffset,
+				  uint32_t srcRowPitch) override;
 
 	void	 prepareForPresent(NRICommandBuffer &commandBuffer) override;
 	uint32_t getWidth() const override { return width; }
 	uint32_t getHeight() const override { return height; }
+	NRIResourceHandle			getImageViewHandle() override;
 
 	D3D12_CPU_DESCRIPTOR_HANDLE getViewHandle() const { return viewHandle; }
+	ID3D12Resource			   *operator*() const { return resource.Get(); }
 };
 
 class DX12NRICommandPool : public NRICommandPool {
@@ -208,6 +214,7 @@ class DX12NRIProgramBuilder : public NRIProgramBuilder {
 	DX12NRIProgramBuilder(DX12NRI &nri);
 	std::unique_ptr<NRIGraphicsProgram> buildGraphicsProgram() override;
 	std::unique_ptr<NRIComputeProgram>	buildComputeProgram() override;
+	std::unique_ptr<NRIRayTracingProgram> buildRayTracingProgram() override;
 };
 
 class DX12NRIQWindow : public NRIQWindow {
@@ -267,8 +274,15 @@ class DX12NRI : public NRI {
 	std::unique_ptr<NRICommandPool>	  createCommandPool() override;
 	NRIQWindow *createQWidgetSurface(QApplication &app, std::unique_ptr<Renderer> &&renderer) override;
 	std::unique_ptr<NRIProgramBuilder> createProgramBuilder() override;
+	std::unique_ptr<NRIBLAS> createBLAS(NRIBuffer &vertexBuffer, NRI::Format vertexFormat, std::size_t vertexOffset,
+										uint32_t vertexCount, std::size_t vertexStride, NRIBuffer &indexBuffer,
+										NRI::IndexType indexType, std::size_t indexOffset) override;
+	std::unique_ptr<NRITLAS> createTLAS(const std::span<const NRIBLAS *>	 &blases,
+										std::optional<std::span<glm::mat4x3>> transforms = std::nullopt) override;
 
 	bool shouldFlipY() const override { return false; }
+	bool supportsRayTracing() const override { return false; }
+	bool supportsTextures() const override { return false; }
 	void synchronize() const override {}
 
 	auto				getDevice() const { return device.Get(); }

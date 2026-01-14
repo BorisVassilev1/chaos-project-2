@@ -6,7 +6,7 @@ struct PushConstants
 	RWTextureHandle outputTexture;
 };
 
-[[vk::push_constant]]
+VK_PUSH_CONST_ATTR
 PushConstants pushConstants : register(b0);
 
 struct RayPayload

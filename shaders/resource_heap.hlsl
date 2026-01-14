@@ -36,8 +36,16 @@ class ResourceHandle {
 	ITERATOR(float3, __VA_ARGS__) \
 	ITERATOR(float4, __VA_ARGS__)
 
+#ifdef VULKAN
+	#define VK_BINDING_ATTR(a, b) [[vk::binding(a, b)]]
+	#define VK_PUSH_CONST_ATTR [[vk::push_constant]]
+#else
+	#define VK_BINDING_ATTR(a, b)
+	#define VK_PUSH_CONST_ATTR
+#endif
+
 #define _GENERATE_TEXTURE_TYPE_SLOT(nativeType, textureType, bindingA, bindingB) \
-	[[vk::binding(bindingA, bindingB)]] \
+	VK_BINDING_ATTR(bindingA, bindingB) \
 	textureType<nativeType> g_##textureType##nativeType [ BINDLESS_RESCRIPTOR_HEAP_SIZE ] : register(t##bindingA);
 
 #define DEFINE_TEXTURE_TYPES_AND_FORMATS_SLOTS(textureType, bindingA, bindingB) \
@@ -130,7 +138,7 @@ ITERATE_TEXTURE_TYPES(DEFINE_3D_LOAD_OVERLOADS, Texture3D)
 
 
 #define _GENERATE_RWTEXTURE_TYPE_SLOT(nativeType, textureType, bindingA, bindingB) \
-	[[vk::binding(bindingA, bindingB)]] \
+	VK_BINDING_ATTR(bindingA, bindingB) \
 	textureType<nativeType> g_##textureType##nativeType [ BINDLESS_RESCRIPTOR_HEAP_SIZE ] : register(u##bindingA);
 
 #define DEFINE_RWTEXTURE_TYPES_AND_FORMATS_SLOTS(textureType, bindingA, bindingB) \

@@ -69,22 +69,28 @@ void Mesh::init(NRI &nri, NRICommandQueue &q, std::span<float> vertices, std::sp
 		uploadBuffer->unmap();
 	}
 
-	bottomLevelAS = nri.createBLAS(*vertexAttributes, NRI::Format::FORMAT_R32G32B32_SFLOAT, 0, vertexCount,
-								   (3 + 3 + 3 + 2) * sizeof(float), *indexBuffer, NRI::IndexType::INDEX_TYPE_UINT32, 0);
+	bool nriRayTracingSupported = nri.supportsRayTracing();
+
+	if (nriRayTracingSupported)
+		bottomLevelAS =
+			nri.createBLAS(*vertexAttributes, NRI::Format::FORMAT_R32G32B32_SFLOAT, 0, vertexCount,
+						   (3 + 3 + 3 + 2) * sizeof(float), *indexBuffer, NRI::IndexType::INDEX_TYPE_UINT32, 0);
 
 	auto cmdBuffer = nri.createCommandBuffer(nri.getDefaultCommandPool());
 	vertexAttributes->copyFrom(*cmdBuffer, *uploadBuffer, vertexAttributes->getOffset(), 0,
 							   vertexAttributes->getSize());
 	indexBuffer->copyFrom(*cmdBuffer, *uploadBuffer, indexBuffer->getOffset(), 0, indexBuffer->getSize());
 
-	bottomLevelAS->build(*cmdBuffer);
-	cmdBuffer->end();
+	if (nriRayTracingSupported) {
+		bottomLevelAS->build(*cmdBuffer);
+		cmdBuffer->end();
+		dbLog(dbg::LOG_DEBUG, "Submitting Mesh BLAS with ", vertexCount, " vertices and ", indexCount / 3,
+			  " triangles to command queue.");
+	}
 
-	dbLog(dbg::LOG_DEBUG, "Submitting Mesh BLAS with ", vertexCount, " vertices and ", indexCount / 3,
-		  " triangles to command queue.");
 	auto key = q.submit(*cmdBuffer);
 	q.wait(key);
-	bottomLevelAS->buildFinished();
+	if (nriRayTracingSupported) bottomLevelAS->buildFinished();
 }
 
 Mesh::Mesh(NRI &nri, NRICommandQueue &q, const rapidjson::Value &obj) {
@@ -192,4 +198,22 @@ std::vector<NRI::VertexBinding> Mesh::getVertexBindings() const {
 const NRIBLAS &Mesh::getBLAS() const {
 	if (!bottomLevelAS) { dbLog(dbg::LOG_ERROR, "Bottom level AS not created for this mesh!"); }
 	return *bottomLevelAS;
+}
+
+TriangleMesh::TriangleMesh(NRI &nri, NRICommandQueue &q) : Mesh() {
+	std::vector<float> vertices = {
+		0.0f,  0.5f,  0.0f,		// Vertex 1 Position
+		-0.5f, -0.5f, 0.0f,		// Vertex 2 Position
+		0.5f,  -0.5f, 0.0f,		// Vertex 3 Position
+	};
+	std::vector<float> colors = {
+		1.0f, 0.0f, 0.0f,	  // Vertex 1 Color
+		0.0f, 1.0f, 0.0f,	  // Vertex 2 Color
+		0.0f, 0.0f, 1.0f	  // Vertex 3 Color
+	};
+	std::vector<float>	  normals(vertices.size(), 0.0f);				// Dummy normals
+	std::vector<float>	  texCoords(vertices.size() / 3 * 2, 0.0f);		// Dummy texture coordinates
+	std::vector<uint32_t> indices = {0, 1, 2};
+
+	init(nri, q, vertices, colors, normals, texCoords, indices);
 }

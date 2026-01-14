@@ -38,7 +38,7 @@ MeshObject::MeshObject(uint32_t meshIndex, const rapidjson::Value &obj) : meshIn
 	}
 }
 
-Scene::Scene(NRI &nri, NRICommandQueue &q, const std::string_view &filename) {
+Scene::Scene(NRI &nri, NRICommandQueue &q, const std::string_view &filename) : nri(nri) {
 	rapidjson::Document doc;
 	scenePath = filename;
 	std::ifstream file(filename.data());
@@ -79,25 +79,25 @@ Scene::Scene(NRI &nri, NRICommandQueue &q, const std::string_view &filename) {
 		}
 	}
 
-	std::vector<const NRIBLAS *>	 blasList;
-	std::vector<glm::mat4x3> transforms;
-	for(const auto &obj : meshObjects) {
-		assert(obj.meshIndex < meshes.size());
-		blasList.push_back(&(meshes[obj.meshIndex].getBLAS()));
-		transforms.push_back(glm::mat4x3(obj.transform));
+	if (nri.supportsRayTracing()) {
+		std::vector<const NRIBLAS *> blasList;
+		std::vector<glm::mat4x3>	 transforms;
+		for (const auto &obj : meshObjects) {
+			assert(obj.meshIndex < meshes.size());
+			blasList.push_back(&(meshes[obj.meshIndex].getBLAS()));
+			transforms.push_back(glm::mat4x3(obj.transform));
+		}
+		dbLog(dbg::LOG_INFO, "Creating TLAS with ", blasList.size(), " instances.");
+		tlas		= nri.createTLAS(blasList, transforms);
+		auto cmdBuf = nri.createCommandBuffer(nri.getDefaultCommandPool());
+		tlas->build(*cmdBuf);
+		dbLog(dbg::LOG_DEBUG, "Submitting TLAS build command buffer.");
+		auto key = q.submit(*cmdBuf);
+		q.wait(key);
+		tlas->buildFinished();
 	}
-	dbLog(dbg::LOG_INFO, "Creating TLAS with ", blasList.size(), " instances.");
-	tlas = nri.createTLAS(blasList, transforms);
-	auto cmdBuf = nri.createCommandBuffer(nri.getDefaultCommandPool());
-	tlas->build(*cmdBuf);
-	dbLog(dbg::LOG_DEBUG, "Submitting TLAS build command buffer.");
-	auto key = q.submit(*cmdBuf);
-	q.wait(key);
-	tlas->buildFinished();
 
-
-
-	if (doc.FindMember("textures") != doc.MemberEnd()) {
+	if (doc.FindMember("textures") != doc.MemberEnd() && nri.supportsTextures()) {
 		auto texturesJSON = doc["textures"].GetArray();
 		dbLog(dbg::LOG_DEBUG, "Found ", texturesJSON.Size(), " textures in scene file.");
 		for (const auto &j : texturesJSON) {
@@ -166,12 +166,13 @@ void Scene::render(NRICommandBuffer &commandBuffer, NRIGraphicsProgram &program,
 		auto &mesh	   = meshes[obj.meshIndex];
 		auto &material = materials[obj.materialIndex];
 
-		NRIResourceHandle textureHandle = material->getTextureHandle();
-
 		mesh.bind(commandBuffer);
 		glm::mat4 modelViewProjection = camera.getViewProjectionMatrix() * obj.transform;
 		program.setPushConstants(commandBuffer, &modelViewProjection, sizeof(modelViewProjection), 0);
 
+		NRIResourceHandle textureHandle = NRIResourceHandle::INVALID_HANDLE;
+		if (nri.supportsTextures())
+			textureHandle = material->getTextureHandle();
 		program.setPushConstants(commandBuffer, &textureHandle, sizeof(PushConstantData), sizeof(modelViewProjection));
 
 		mesh.draw(commandBuffer, program);
@@ -191,3 +192,5 @@ NRI::PushConstantRange Scene::getPushConstantRange() {
 	auto cameraRange = Camera::getPushConstantRange();
 	return {cameraRange.offset, uint32_t(cameraRange.size + sizeof(PushConstantData))};
 }
+
+NRITLAS &Scene::getTLAS() { return *tlas; }
