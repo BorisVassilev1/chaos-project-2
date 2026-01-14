@@ -515,9 +515,12 @@ VulkanNRIBuffer::VulkanNRIBuffer(VulkanNRI &nri, std::size_t size, NRI::BufferUs
 							vk::BufferUsageFlagBits::eAccelerationStructureBuildInputReadOnlyKHR;
 	if (usage & NRI::BufferUsage::BUFFER_USAGE_UNIFORM) bufferUsageFlags |= vk::BufferUsageFlagBits::eUniformBuffer;
 	if (usage & NRI::BufferUsage::BUFFER_USAGE_STORAGE)
-		bufferUsageFlags |= vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eShaderDeviceAddress;
+		bufferUsageFlags |= vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eShaderDeviceAddress |
+							vk::BufferUsageFlagBits::eAccelerationStructureStorageKHR;
 	if (usage & NRI::BufferUsage::BUFFER_USAGE_TRANSFER_SRC) bufferUsageFlags |= vk::BufferUsageFlagBits::eTransferSrc;
-	if (usage & NRI::BufferUsage::BUFFER_USAGE_TRANSFER_DST) bufferUsageFlags |= vk::BufferUsageFlagBits::eTransferDst;
+	if (usage & NRI::BufferUsage::BUFFER_USAGE_TRANSFER_DST)
+		bufferUsageFlags |= vk::BufferUsageFlagBits::eTransferDst |
+							vk::BufferUsageFlagBits::eAccelerationStructureBuildInputReadOnlyKHR;
 	if (usage & NRI::BufferUsage::BUFFER_USAGE_ACCELERATION_STRUCTURE)
 		bufferUsageFlags |=
 			vk::BufferUsageFlagBits::eAccelerationStructureStorageKHR | vk::BufferUsageFlagBits::eShaderDeviceAddress;
@@ -948,11 +951,11 @@ std::pair<std::vector<vk::raii::ShaderModule>, std::vector<vk::PipelineShaderSta
 	std::vector<vk::PipelineShaderStageCreateInfo> shaderStages;
 	std::vector<vk::raii::ShaderModule>			   shaderModules;
 
-	IDxcCompiler3 *compiler = nullptr;
-	HRESULT		   hr		= DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&compiler));
+	CComPtr<IDxcCompiler3> compiler;
+	HRESULT				   hr = DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&compiler));
 	assert(SUCCEEDED(hr) && "Failed to create DX Compiler.");
 
-	IDxcUtils *utils;
+	CComPtr<IDxcUtils> utils;
 	hr = DxcCreateInstance(CLSID_DxcUtils, IID_PPV_ARGS(&utils));
 	assert(SUCCEEDED(hr) && "Failed to create DX Utils.");
 
@@ -963,16 +966,23 @@ std::pair<std::vector<vk::raii::ShaderModule>, std::vector<vk::PipelineShaderSta
 		switch (stageInfo.shaderType) {
 			case NRI::ShaderType::SHADER_TYPE_VERTEX: stage = vk::ShaderStageFlagBits::eVertex; break;
 			case NRI::ShaderType::SHADER_TYPE_FRAGMENT: stage = vk::ShaderStageFlagBits::eFragment; break;
-			default: throw std::runtime_error("Unsupported shader stage!");
+			case NRI::ShaderType::SHADER_TYPE_COMPUTE: stage = vk::ShaderStageFlagBits::eCompute; break;
+			case NRI::ShaderType::SHADER_TYPE_RAYGEN: stage = vk::ShaderStageFlagBits::eRaygenKHR; break;
+			case NRI::ShaderType::SHADER_TYPE_CLOSEST_HIT: stage = vk::ShaderStageFlagBits::eClosestHitKHR; break;
+			case NRI::ShaderType::SHADER_TYPE_ANY_HIT: stage = vk::ShaderStageFlagBits::eAnyHitKHR; break;
+			case NRI::ShaderType::SHADER_TYPE_MISS: stage = vk::ShaderStageFlagBits::eMissKHR; break;
+			default:
+				dbLog(dbg::LOG_ERROR, "Unsupported shader type: ", static_cast<int>(stageInfo.shaderType));
+				throw std::runtime_error("Unsupported shader stage!");
 		}
 		const std::filesystem::path sourceFile{stageInfo.sourceFile};
 
 		std::ifstream fin(sourceFile);
 		std::string	  source{(std::istreambuf_iterator<char>(fin)), std::istreambuf_iterator<char>()};
 
-		IDxcBlobEncoding *sourceBlob;
-		std::wstring	  wSourceFile = std::wstring(stageInfo.sourceFile.begin(), stageInfo.sourceFile.end());
-		HRESULT			  hr		  = utils->LoadFile(wSourceFile.c_str(), nullptr, &sourceBlob);
+		CComPtr<IDxcBlobEncoding> sourceBlob;
+		std::wstring			  wSourceFile = std::wstring(stageInfo.sourceFile.begin(), stageInfo.sourceFile.end());
+		HRESULT					  hr		  = utils->LoadFile(wSourceFile.c_str(), nullptr, &sourceBlob);
 		if (FAILED(hr)) {
 			throw std::runtime_error("Failed to load shader source file: " + std::string(stageInfo.sourceFile));
 		}
@@ -985,7 +995,14 @@ std::pair<std::vector<vk::raii::ShaderModule>, std::vector<vk::PipelineShaderSta
 		switch (stageInfo.shaderType) {
 			case NRI::ShaderType::SHADER_TYPE_VERTEX: arguments.push_back(L"vs_6_0"); break;
 			case NRI::ShaderType::SHADER_TYPE_FRAGMENT: arguments.push_back(L"ps_6_0"); break;
-			default: throw std::runtime_error("Unsupported shader stage!");
+			case NRI::ShaderType::SHADER_TYPE_COMPUTE: arguments.push_back(L"cs_6_0"); break;
+			case NRI::ShaderType::SHADER_TYPE_RAYGEN: arguments.push_back(L"lib_6_3"); break;
+			case NRI::ShaderType::SHADER_TYPE_CLOSEST_HIT: arguments.push_back(L"lib_6_3"); break;
+			case NRI::ShaderType::SHADER_TYPE_ANY_HIT: arguments.push_back(L"lib_6_3"); break;
+			case NRI::ShaderType::SHADER_TYPE_MISS: arguments.push_back(L"lib_6_3"); break;
+			default:
+				dbLog(dbg::LOG_ERROR, "Unsupported shader type: ", static_cast<int>(stageInfo.shaderType));
+				throw std::runtime_error("Unsupported shader stage!");
 		}
 		arguments.push_back(L"-spirv");
 		arguments.push_back(L"-D");
@@ -1006,12 +1023,12 @@ std::pair<std::vector<vk::raii::ShaderModule>, std::vector<vk::PipelineShaderSta
 			  "\n\tEntry point: ", stageInfo.entryPoint);
 
 		includeHandler->reset();
-		IDxcResult *result;
+		CComPtr<IDxcResult> result;
 		hr = compiler->Compile(&buffer, arguments.data(), static_cast<UINT32>(arguments.size()), includeHandler.get(),
 							   IID_PPV_ARGS(&result));
 		if (FAILED(hr)) { throw std::runtime_error("Failed to compile shader: " + std::string(stageInfo.sourceFile)); }
 
-		IDxcBlobEncoding *errorBuffer;
+		CComPtr<IDxcBlobEncoding> errorBuffer;
 		result->GetErrorBuffer(&errorBuffer);
 		if (errorBuffer != nullptr && errorBuffer->GetBufferSize() > 0) {
 			std::string errorMessage(reinterpret_cast<const char *>(errorBuffer->GetBufferPointer()),
@@ -1019,7 +1036,7 @@ std::pair<std::vector<vk::raii::ShaderModule>, std::vector<vk::PipelineShaderSta
 			std::cerr << "Shader compilation warnings/errors: " << errorMessage << std::endl;
 		}
 
-		IDxcBlob *spirvBlob;
+		CComPtr<IDxcBlob> spirvBlob;
 		result->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&spirvBlob), nullptr);
 
 		vk::ShaderModuleCreateInfo shaderModuleInfo({}, spirvBlob->GetBufferSize(),
@@ -1134,6 +1151,66 @@ std::unique_ptr<NRIComputeProgram> VulkanNRIProgramBuilder::buildComputeProgram(
 	auto pipelines = nri.getDevice().createComputePipelines(nullptr, {pipelineInfo});
 	return std::make_unique<VulkanNRIComputeProgram>(nri, std::move(pipelines[0]), std::move(pipelineLayout));
 }
+
+static auto findShaderStage(const std::vector<vk::PipelineShaderStageCreateInfo> &shaderStages,
+							vk::ShaderStageFlagBits								  stage) {
+	return std::find_if(shaderStages.begin(), shaderStages.end(),
+						[stage](const vk::PipelineShaderStageCreateInfo &s) { return s.stage == stage; });
+}
+
+std::unique_ptr<NRIRayTracingProgram> VulkanNRIProgramBuilder::buildRayTracingProgram() {
+	auto [shaderModules, shaderStages] = createShaderModules(std::move(shaderStagesInfo), nri.getDevice());
+
+	vk::PipelineLayoutCreateInfo pipelineLayoutInfo{};
+	auto						 pushConstantRanges = createPushConstantRanges(this->pushConstantRanges);
+	pipelineLayoutInfo.setPushConstantRangeCount(pushConstantRanges.size());
+	pipelineLayoutInfo.setPPushConstantRanges(pushConstantRanges.data());
+	pipelineLayoutInfo.setSetLayoutCount(1);
+	pipelineLayoutInfo.setPSetLayouts(&*nri.getDescriptorAllocator().getDescriptorSetLayout());
+	auto pipelineLayout = vk::raii::PipelineLayout(nri.getDevice(), pipelineLayoutInfo);
+
+	// find ray generation shader stage
+	auto raygenit	  = findShaderStage(shaderStages, vk::ShaderStageFlagBits::eRaygenKHR);
+	auto closesthitit = findShaderStage(shaderStages, vk::ShaderStageFlagBits::eClosestHitKHR);
+	auto anyhitit	  = findShaderStage(shaderStages, vk::ShaderStageFlagBits::eAnyHitKHR);
+	auto missit		  = findShaderStage(shaderStages, vk::ShaderStageFlagBits::eMissKHR);
+
+	auto raygen		= raygenit != shaderStages.end() ? raygenit - shaderStages.begin() : VK_SHADER_UNUSED_KHR;
+	auto closesthit = closesthitit != shaderStages.end() ? closesthitit - shaderStages.begin() : VK_SHADER_UNUSED_KHR;
+	auto anyhit		= anyhitit != shaderStages.end() ? anyhitit - shaderStages.begin() : VK_SHADER_UNUSED_KHR;
+	auto miss		= missit != shaderStages.end() ? missit - shaderStages.begin() : VK_SHADER_UNUSED_KHR;
+
+	if (raygen == VK_SHADER_UNUSED_KHR) dbLog(dbg::LOG_ERROR, "No ray generation shader found in ray tracing program!");
+	if (miss != VK_SHADER_UNUSED_KHR) dbLog(dbg::LOG_ERROR, "Miss shaders not currently supported in VulkanNRI");
+
+	std::vector<vk::RayTracingShaderGroupCreateInfoKHR> shaderGroups;
+	shaderGroups.push_back(vk::RayTracingShaderGroupCreateInfoKHR(vk::RayTracingShaderGroupTypeKHR::eGeneral, raygen,
+																  closesthit, anyhit, VK_SHADER_UNUSED_KHR));
+
+	vk::RayTracingPipelineCreateInfoKHR pipelineInfo({}, static_cast<uint32_t>(shaderStages.size()),
+													 shaderStages.data(), shaderGroups.size(), shaderGroups.data(),
+													 1	   // no recursion
+													 ,
+													 {}, {}, {}, *pipelineLayout, {}, {});
+
+	static PFN_vkCreateRayTracingPipelinesKHR vkCreateRayTracingPipelinesKHR =
+		reinterpret_cast<PFN_vkCreateRayTracingPipelinesKHR>(
+			nri.getInstance().getProcAddr("vkCreateRayTracingPipelinesKHR"));
+	assert(vkCreateRayTracingPipelinesKHR != nullptr);
+
+	auto pipelines = nri.getDevice().createRayTracingPipelinesKHR(nullptr, nullptr, pipelineInfo, nullptr);
+	if (!pipelines.size()) dbLog(dbg::LOG_ERROR, "Failed to create ray tracing pipeline!");
+
+	return std::make_unique<VulkanNRIRayTracingProgram>(nri, std::move(pipelines[0]), std::move(pipelineLayout));
+}
+
+void VulkanNRIRayTracingProgram::traceRays(NRICommandBuffer &commandBuffer, uint32_t width, uint32_t height,
+										   uint32_t depth) {
+	auto &vkCmdBuf = static_cast<VulkanNRICommandBuffer &>(commandBuffer);
+
+	vkCmdBuf.begin();
+	// vkCmdBuf.commandBuffer.traceRaysKHR(_, _, _, _, width, height, depth);
+};
 
 void VulkanNRIProgram::bind(NRICommandBuffer &commandBuffer) {
 	auto &vkCmdBuf = static_cast<VulkanNRICommandBuffer &>(commandBuffer);
@@ -1337,21 +1414,22 @@ VulkanNRIBLAS::VulkanNRIBLAS(VulkanNRI &nri, VulkanNRIBuffer &vertexBuffer, NRI:
 		vk::BuildAccelerationStructureModeKHR::eBuild, {}, this->accelerationStructure, 1,
 		&this->tempBuildInfo->geometry);
 
-	auto sizeInfo = nri.getDevice().getAccelerationStructureBuildSizesKHR(
+	this->tempBuildInfo->sizeInfo = nri.getDevice().getAccelerationStructureBuildSizesKHR(
 		vk::AccelerationStructureBuildTypeKHR::eDevice, this->tempBuildInfo->buildGeometryInfo,
 		{this->tempBuildInfo->buildRangeInfo.primitiveCount});
 
-	this->asBuffer =
-		VulkanNRIBuffer(nri, sizeInfo.accelerationStructureSize, NRI::BufferUsage::BUFFER_USAGE_ACCELERATION_STRUCTURE);
+	this->asBuffer = VulkanNRIBuffer(nri, this->tempBuildInfo->sizeInfo.accelerationStructureSize,
+									 NRI::BufferUsage::BUFFER_USAGE_ACCELERATION_STRUCTURE);
 	this->asMemory = VulkanNRIAllocation(
 		nri, asBuffer.getMemoryRequirements().setTypeRequest(NRI::MemoryTypeRequest::MEMORY_TYPE_DEVICE));
 	this->asBuffer.bindMemory(asMemory, 0);
 
-	vk::AccelerationStructureCreateInfoKHR asCreateInfo({}, asBuffer.getBuffer(), 0, sizeInfo.accelerationStructureSize,
+	vk::AccelerationStructureCreateInfoKHR asCreateInfo({}, asBuffer.getBuffer(), 0,
+														this->tempBuildInfo->sizeInfo.accelerationStructureSize,
 														vk::AccelerationStructureTypeKHR::eBottomLevel);
 
 	this->tempBuildInfo->scratchBuffer =
-		VulkanNRIBuffer(nri, sizeInfo.buildScratchSize,
+		VulkanNRIBuffer(nri, this->tempBuildInfo->sizeInfo.buildScratchSize,
 						NRI::BufferUsage::BUFFER_USAGE_STORAGE | NRI::BufferUsage::BUFFER_USAGE_TRANSFER_SRC |
 							NRI::BufferUsage::BUFFER_USAGE_TRANSFER_DST);
 
@@ -1362,8 +1440,6 @@ VulkanNRIBLAS::VulkanNRIBLAS(VulkanNRI &nri, VulkanNRIBuffer &vertexBuffer, NRI:
 
 	this->tempBuildInfo->buildGeometryInfo.scratchData.setDeviceAddress(
 		this->tempBuildInfo->scratchBuffer.getAddress());
-	std::cout << "Scratch buffer address: " << std::hex << this->tempBuildInfo->scratchBuffer.getAddress() << std::dec
-			  << std::endl;
 
 	this->accelerationStructure = nri.getDevice().createAccelerationStructureKHR(asCreateInfo);
 	this->tempBuildInfo->buildGeometryInfo.dstAccelerationStructure = this->accelerationStructure;
@@ -1401,8 +1477,9 @@ void VulkanNRIBLAS::build(NRICommandBuffer &commandBuffer) {
 	vkCmdBuf.commandBuffer.pipelineBarrier(vk::PipelineStageFlagBits::eAccelerationStructureBuildKHR,
 										   vk::PipelineStageFlagBits::eRayTracingShaderKHR, {}, {postBuildBarrier}, {},
 										   {});
-	this->tempBuildInfo.reset();
 }
+
+void VulkanNRIBLAS::buildFinished() { this->tempBuildInfo.reset(); }
 
 vk::DeviceAddress VulkanNRIBLAS::getAddress() const {
 	vk::AccelerationStructureDeviceAddressInfoKHR addressInfo(this->accelerationStructure);
@@ -1418,9 +1495,9 @@ VulkanNRITLAS::VulkanNRITLAS(VulkanNRI &nri, const std::span<const NRIBLAS *> &b
 		VulkanNRIBuffer(nri, sizeof(vk::AccelerationStructureInstanceKHR) * blases.size(),
 						NRI::BufferUsage::BUFFER_USAGE_TRANSFER_SRC | NRI::BufferUsage::BUFFER_USAGE_TRANSFER_DST);
 	tempBuildInfo->instanceUploadMemory =
-		VulkanNRIAllocation(nri, tempBuildInfo->instanceBuffer.getMemoryRequirements().setTypeRequest(
+		VulkanNRIAllocation(nri, tempBuildInfo->instanceUploadBuffer.getMemoryRequirements().setTypeRequest(
 									 NRI::MemoryTypeRequest::MEMORY_TYPE_UPLOAD));
-	tempBuildInfo->instanceUploadBuffer.bindMemory(tempBuildInfo->instanceMemory, 0);
+	tempBuildInfo->instanceUploadBuffer.bindMemory(tempBuildInfo->instanceUploadMemory, 0);
 	{
 		vk::AccelerationStructureInstanceKHR *data =
 			(vk::AccelerationStructureInstanceKHR *)tempBuildInfo->instanceUploadBuffer.map(
@@ -1431,9 +1508,9 @@ VulkanNRITLAS::VulkanNRITLAS(VulkanNRI &nri, const std::span<const NRIBLAS *> &b
 		int i = 0;
 		for (const auto &blas : blases) {
 			auto								 &vulkanBLAS = static_cast<const VulkanNRIBLAS &>(*blas);
-			vk::AccelerationStructureInstanceKHR &instance	 = instances[i++];
+			vk::AccelerationStructureInstanceKHR &instance	 = instances[i];
 			if (transforms.has_value()) {
-				auto &t = transforms.value()[instances.size()];
+				auto &t = transforms.value()[i];
 				std::memcpy(&instance.transform.matrix, &t, sizeof(glm::mat4x3));
 			} else {
 				glm::mat4x3 identity = glm::mat4x3(1.0f);
@@ -1450,10 +1527,9 @@ VulkanNRITLAS::VulkanNRITLAS(VulkanNRI &nri, const std::span<const NRIBLAS *> &b
 	}
 
 	// allocate instance buffer
-	tempBuildInfo->instanceBuffer = VulkanNRIBuffer(nri, tempBuildInfo->instanceUploadBuffer.getSize(),
-													NRI::BufferUsage::BUFFER_USAGE_ACCELERATION_STRUCTURE |
-														NRI::BufferUsage::BUFFER_USAGE_TRANSFER_DST |
-														NRI::BufferUsage::BUFFER_USAGE_ACCELERATION_STRUCTURE);
+	tempBuildInfo->instanceBuffer = VulkanNRIBuffer(
+		nri, tempBuildInfo->instanceUploadBuffer.getSize(),
+		NRI::BufferUsage::BUFFER_USAGE_TRANSFER_DST | NRI::BufferUsage::BUFFER_USAGE_ACCELERATION_STRUCTURE);
 	tempBuildInfo->instanceMemory =
 		VulkanNRIAllocation(nri, tempBuildInfo->instanceBuffer.getMemoryRequirements().setTypeRequest(
 									 NRI::MemoryTypeRequest::MEMORY_TYPE_DEVICE));
@@ -1469,7 +1545,7 @@ VulkanNRITLAS::VulkanNRITLAS(VulkanNRI &nri, const std::span<const NRIBLAS *> &b
 	tempBuildInfo->buildRangeInfo	 = vk::AccelerationStructureBuildRangeInfoKHR(blases.size(), 0, 0, 0);
 	tempBuildInfo->buildGeometryInfo = vk::AccelerationStructureBuildGeometryInfoKHR(
 		vk::AccelerationStructureTypeKHR::eTopLevel, vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace,
-		vk::BuildAccelerationStructureModeKHR::eBuild, {}, as, 1, &tempBuildInfo->geometry, nullptr, nullptr);
+		vk::BuildAccelerationStructureModeKHR::eBuild, {}, {}, 1, &tempBuildInfo->geometry, nullptr, nullptr);
 
 	vk::AccelerationStructureBuildSizesInfoKHR sizeInfo = nri.getDevice().getAccelerationStructureBuildSizesKHR(
 		vk::AccelerationStructureBuildTypeKHR::eDevice, tempBuildInfo->buildGeometryInfo,
@@ -1485,6 +1561,7 @@ VulkanNRITLAS::VulkanNRITLAS(VulkanNRI &nri, const std::span<const NRIBLAS *> &b
 	vk::AccelerationStructureCreateInfoKHR asCreateInfo({}, asBuffer.getBuffer(), 0,
 														sizeInfo.accelerationStructureSize);
 	this->as = nri.getDevice().createAccelerationStructureKHR(asCreateInfo);
+	tempBuildInfo->buildGeometryInfo.dstAccelerationStructure = this->as;
 
 	// create scratch buffer
 	tempBuildInfo->scratchBuffer =
@@ -1523,8 +1600,9 @@ void VulkanNRITLAS::build(NRICommandBuffer &commandBuffer) {
 	vkCmdBuf.commandBuffer.pipelineBarrier(vk::PipelineStageFlagBits::eAccelerationStructureBuildKHR,
 										   vk::PipelineStageFlagBits::eRayTracingShaderKHR, {}, {postBuildBarrier}, {},
 										   {});
-	this->tempBuildInfo.reset();
 }
+
+void VulkanNRITLAS::buildFinished() { this->tempBuildInfo.reset(); }
 
 std::unique_ptr<NRIBLAS> VulkanNRI::createBLAS(NRIBuffer &vertexBuffer, NRI::Format vertexFormat,
 											   std::size_t vertexOffset, uint32_t vertexCount, std::size_t vertexStride,

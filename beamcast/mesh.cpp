@@ -77,13 +77,14 @@ void Mesh::init(NRI &nri, NRICommandQueue &q, std::span<float> vertices, std::sp
 							   vertexAttributes->getSize());
 	indexBuffer->copyFrom(*cmdBuffer, *uploadBuffer, indexBuffer->getOffset(), 0, indexBuffer->getSize());
 
-	// bottomLevelAS->build(*cmdBuffer);
+	bottomLevelAS->build(*cmdBuffer);
 	cmdBuffer->end();
 
-	dbLog(dbg::LOG_DEBUG, "submitting mesh upload command buffer");
+	dbLog(dbg::LOG_DEBUG, "Submitting Mesh BLAS with ", vertexCount, " vertices and ", indexCount / 3,
+		  " triangles to command queue.");
 	auto key = q.submit(*cmdBuffer);
 	q.wait(key);
-	// std::cin.get();
+	bottomLevelAS->buildFinished();
 }
 
 Mesh::Mesh(NRI &nri, NRICommandQueue &q, const rapidjson::Value &obj) {

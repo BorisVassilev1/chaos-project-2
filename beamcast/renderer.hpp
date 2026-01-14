@@ -22,6 +22,8 @@ class BeamcastRenderer : public Renderer {
 
 	std::unique_ptr<Scene> scene;
 
+	std::unique_ptr<NRIRayTracingProgram> rayTracingShader;
+
 	BeamcastRenderer(NRI &nri, QApplication &app)
 		: Renderer(nri), camera(app, 800, 600, nri.shouldFlipY()), isKeyPressed(app) {}
 
@@ -49,6 +51,12 @@ class BeamcastRenderer : public Renderer {
 					 .setPrimitiveType(NRI::PrimitiveType::PRIMITIVE_TYPE_TRIANGLES)
 					 .setPushConstantRanges({Scene::getPushConstantRange()})
 					 .buildGraphicsProgram();
+	
+		shaderBuilder = nri.createProgramBuilder();
+		rayTracingShader = shaderBuilder
+							   ->addShaderModule({PROJECT_ROOT_DIR "shaders/raygen.hlsl", "RayGenMain",
+												  NRI::ShaderType::SHADER_TYPE_RAYGEN})
+							   .buildRayTracingProgram();
 
 		dbLog(dbg::LOG_INFO, "Renderer initialized.");
 

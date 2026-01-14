@@ -128,6 +128,88 @@ ITERATE_TEXTURE_TYPES(DEFINE_1D_LOAD_OVERLOADS, Texture1D)
 ITERATE_TEXTURE_TYPES(DEFINE_2D_LOAD_OVERLOADS, Texture2D)
 ITERATE_TEXTURE_TYPES(DEFINE_3D_LOAD_OVERLOADS, Texture3D)
 
+
+#define _GENERATE_RWTEXTURE_TYPE_SLOT(nativeType, textureType, bindingA, bindingB) \
+	[[vk::binding(bindingA, bindingB)]] \
+	textureType<nativeType> g_##textureType##nativeType [ BINDLESS_RESCRIPTOR_HEAP_SIZE ] : register(u##bindingA);
+
+#define DEFINE_RWTEXTURE_TYPES_AND_FORMATS_SLOTS(textureType, bindingA, bindingB) \
+	ITERATE_TEXTURE_TYPES(_GENERATE_RWTEXTURE_TYPE_SLOT, textureType, bindingA, bindingB)
+
+DEFINE_RWTEXTURE_TYPES_AND_FORMATS_SLOTS(RWTexture1D, 0, 0)
+DEFINE_RWTEXTURE_TYPES_AND_FORMATS_SLOTS(RWTexture2D, 0, 0)
+DEFINE_RWTEXTURE_TYPES_AND_FORMATS_SLOTS(RWTexture3D, 0, 0)
+
+class RWTextureHandle {
+	ResourceHandle handle;
+
+	template<typename T>
+	void Store1D(uint x, T value);
+	template<typename T>
+	void Store2D(uint2 xy, T value);
+	template<typename T>
+	void Store3D(uint3 xyz, T value);
+
+	template<typename T>
+	T Load1D(uint x);
+	template<typename T>
+	T Load2D(uint2 xy);
+	template<typename T>
+	T Load3D(uint3 xyz);
+
+	bool IsValid() { return handle.IsValid(); }
+};
+
+#define DEFINE_1D_STORE_OVERLOADS(nativeType, resourceType) \
+template<>  \
+void RWTextureHandle::Store1D<nativeType>(uint x, nativeType value) { \
+	uint index = handle.GetIndex(); \
+	DESCRIPTOR_HEAP(resourceType##nativeType, index)[x] = value; \
+}
+
+#define DEFINE_2D_STORE_OVERLOADS(nativeType, resourceType) \
+template<>  \
+void RWTextureHandle::Store2D<nativeType>(uint2 xy, nativeType value) { \
+	uint index = handle.GetIndex(); \
+	DESCRIPTOR_HEAP(resourceType##nativeType, index)[xy] = value; \
+}
+
+#define DEFINE_3D_STORE_OVERLOADS(nativeType, resourceType) \
+template<>  \
+void RWTextureHandle::Store3D<nativeType>(uint3 xyz, nativeType value) { \
+	uint index = handle.GetIndex(); \
+	DESCRIPTOR_HEAP(resourceType##nativeType, index)[xyz] = value; \
+}
+
+ITERATE_TEXTURE_TYPES(DEFINE_1D_STORE_OVERLOADS, RWTexture1D)
+ITERATE_TEXTURE_TYPES(DEFINE_2D_STORE_OVERLOADS, RWTexture2D)
+ITERATE_TEXTURE_TYPES(DEFINE_3D_STORE_OVERLOADS, RWTexture3D)
+
+#define DEFINE_1D_RWLOAD_OVERLOADS(nativeType, resourceType) \
+template<>  \
+nativeType RWTextureHandle::Load1D<nativeType>(uint x) { \
+	uint index = handle.GetIndex(); \
+	return DESCRIPTOR_HEAP(resourceType##nativeType, index)[x];\
+}
+
+#define DEFINE_2D_RWLOAD_OVERLOADS(nativeType, resourceType) \
+template<>  \
+nativeType RWTextureHandle::Load2D<nativeType>(uint2 xy) { \
+	uint index = handle.GetIndex(); \
+	return DESCRIPTOR_HEAP(resourceType##nativeType, index)[xy]; \
+}
+
+#define DEFINE_3D_RWLOAD_OVERLOADS(nativeType, resourceType) \
+template<>  \
+nativeType RWTextureHandle::Load3D<nativeType>(uint3 xyz) { \
+	uint index = handle.GetIndex(); \
+	return DESCRIPTOR_HEAP(resourceType##nativeType, index)[xyz]; \
+}
+
+ITERATE_TEXTURE_TYPES(DEFINE_1D_RWLOAD_OVERLOADS, RWTexture1D)
+ITERATE_TEXTURE_TYPES(DEFINE_2D_RWLOAD_OVERLOADS, RWTexture2D)
+ITERATE_TEXTURE_TYPES(DEFINE_3D_RWLOAD_OVERLOADS, RWTexture3D)
+
 #undef _GENERATE_TEXTURE_TYPE_SLOT
 #undef DEFINE_TEXTURE_TYPES_AND_FORMATS_SLOTS
 #undef ITERATE_TEXTURE_TYPES
@@ -146,4 +228,41 @@ class ArrayBufferHandle {
 	}
 };
 
+RaytracingAccelerationStructure g_AccelerationStructures [ BINDLESS_RESCRIPTOR_HEAP_SIZE ] : register(t0);
+
+class AccelerationStructureHandle {
+	ResourceHandle handle;
+
+	bool IsValid() { return handle.IsValid(); }
+
+	template<typename payload_t>
+	void TraceRayKHR(
+		uint RayFlags, 
+		uint InstanceInclusionMask, 
+		uint RayContributionToHitGroupIndex, 
+		uint MultiplierForGeometryContributionToHitGroupIndex, 
+		uint MissShaderIndex, 
+		RayDesc Ray, 
+		inout payload_t Payload);
+};
+
+template<typename payload_t>
+void AccelerationStructureHandle::TraceRayKHR(
+	uint RayFlags, 
+	uint InstanceInclusionMask, 
+	uint RayContributionToHitGroupIndex, 
+	uint MultiplierForGeometryContributionToHitGroupIndex, 
+	uint MissShaderIndex, 
+	RayDesc Ray, 
+	inout payload_t Payload) {
+	uint handleIndex = handle.GetIndex();
+	TraceRay(g_AccelerationStructures [ handleIndex ], 
+		  RayFlags,
+		  InstanceInclusionMask, 
+		  RayContributionToHitGroupIndex,
+		  MultiplierForGeometryContributionToHitGroupIndex, 
+		  MissShaderIndex, 
+		  Ray, 
+		  Payload);
+}
 

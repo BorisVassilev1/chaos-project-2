@@ -230,12 +230,13 @@ class VulkanNRIProgramBuilder : public NRIProgramBuilder {
    public:
 	VulkanNRIProgramBuilder(VulkanNRI &nri) : nri(nri) {}
 
-	std::unique_ptr<NRIGraphicsProgram> buildGraphicsProgram() override;
-	std::unique_ptr<NRIComputeProgram>	buildComputeProgram() override;
+	std::unique_ptr<NRIGraphicsProgram>	  buildGraphicsProgram() override;
+	std::unique_ptr<NRIComputeProgram>	  buildComputeProgram() override;
+	std::unique_ptr<NRIRayTracingProgram> buildRayTracingProgram() override;
 };
 
 class VulkanNRIProgram : virtual NRIProgram {
-   private:
+   protected:
 	VulkanNRI				&nri;
 	vk::raii::Pipeline		 pipeline;
 	vk::raii::PipelineLayout pipelineLayout;
@@ -271,6 +272,13 @@ class VulkanNRIComputeProgram : public VulkanNRIProgram, public NRIComputeProgra
 				  uint32_t groupCountZ) override;
 };
 
+class VulkanNRIRayTracingProgram : public VulkanNRIProgram, public NRIRayTracingProgram {
+   public:
+	using VulkanNRIProgram::VulkanNRIProgram;
+
+	void traceRays(NRICommandBuffer &commandBuffer, uint32_t width, uint32_t height, uint32_t depth) override;
+};
+
 class VulkanMemoryCache {
 	VulkanNRIBuffer		buffer;
 	VulkanNRIAllocation allocation;
@@ -296,6 +304,7 @@ class VulkanNRIBLAS : public NRIBLAS {
 	std::size_t						   indexOffset = 0;
 
 	struct TemporaryBuildInfo {
+		vk::AccelerationStructureBuildSizesInfoKHR	  sizeInfo;
 		vk::AccelerationStructureGeometryKHR		  geometry;
 		vk::AccelerationStructureBuildRangeInfoKHR	  buildRangeInfo;
 		vk::AccelerationStructureBuildGeometryInfoKHR buildGeometryInfo;
@@ -312,6 +321,7 @@ class VulkanNRIBLAS : public NRIBLAS {
 				  NRI::IndexType indexType, std::size_t indexOffset);
 
 	void build(NRICommandBuffer &commandBuffer) override;
+	void buildFinished() override;
 
 	auto			 &getAccelerationStructure() { return accelerationStructure; }
 	const auto		 &getAccelerationStructure() const { return accelerationStructure; }
@@ -345,6 +355,7 @@ class VulkanNRITLAS : public NRITLAS {
 				  std::optional<std::span<glm::mat4x3>> transforms = std::nullopt);
 
 	void build(NRICommandBuffer &commandBuffer) override;
+	void buildFinished() override;
 
 	auto	   &getTLAS() { return as; }
 	const auto &getTLAS() const { return as; }

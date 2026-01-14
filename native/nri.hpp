@@ -19,6 +19,7 @@ class NRIQWindow;
 class NRIProgram;
 class NRIGraphicsProgram;
 class NRIComputeProgram;
+class NRIRayTracingProgram;
 class NRIProgramBuilder;
 class NRIBLAS;
 class NRITLAS;
@@ -273,8 +274,9 @@ class NRI {
 	virtual std::unique_ptr<NRIBLAS> createBLAS(NRIBuffer &vertexBuffer, NRI::Format vertexFormat,
 												std::size_t vertexOffset, uint32_t vertexCount,
 												std::size_t vertexStride, NRIBuffer &indexBuffer,
-												NRI::IndexType indexType, std::size_t indexOffset) = 0;
-	virtual std::unique_ptr<NRITLAS> createTLAS(const std::span<const NRIBLAS *> &blases, std::optional<std::span<glm::mat4x3>> transforms = std::nullopt) = 0;
+												NRI::IndexType indexType, std::size_t indexOffset)				 = 0;
+	virtual std::unique_ptr<NRITLAS> createTLAS(const std::span<const NRIBLAS *>	 &blases,
+												std::optional<std::span<glm::mat4x3>> transforms = std::nullopt) = 0;
 
 	virtual bool shouldFlipY() const = 0;
 
@@ -401,8 +403,9 @@ class NRIProgramBuilder {
 	NRIProgramBuilder &setVertexBindings(const std::vector<NRI::VertexBinding> &bindings);
 	NRIProgramBuilder &setPrimitiveType(NRI::PrimitiveType primitiveType);
 	NRIProgramBuilder &setPushConstantRanges(const std::vector<NRI::PushConstantRange> &ranges);
-	virtual std::unique_ptr<NRIGraphicsProgram> buildGraphicsProgram() = 0;
-	virtual std::unique_ptr<NRIComputeProgram>	buildComputeProgram()  = 0;
+	virtual std::unique_ptr<NRIGraphicsProgram>	  buildGraphicsProgram()   = 0;
+	virtual std::unique_ptr<NRIComputeProgram>	  buildComputeProgram()	   = 0;
+	virtual std::unique_ptr<NRIRayTracingProgram> buildRayTracingProgram() = 0;
 };
 
 /// NRIProgram - represents a GPU program (shader)
@@ -433,10 +436,16 @@ class NRIComputeProgram : virtual public NRIProgram {
 						  uint32_t groupCountZ) = 0;
 };
 
+class NRIRayTracingProgram : virtual public NRIProgram {
+   public:
+	virtual void traceRays(NRICommandBuffer &commandBuffer, uint32_t width, uint32_t height, uint32_t depth) = 0;
+};
+
 // Bottom-Level Acceleration Structure (BLAS)
 class NRIBLAS {
    public:
 	virtual void build(NRICommandBuffer &commandBuffer) = 0;
+	virtual void buildFinished() {}
 
 	virtual ~NRIBLAS() {}
 };
@@ -444,6 +453,7 @@ class NRIBLAS {
 class NRITLAS {
    public:
 	virtual void build(NRICommandBuffer &commandBuffer) = 0;
+	virtual void buildFinished() {}
 
 	virtual ~NRITLAS() {}
 };

@@ -82,13 +82,19 @@ Scene::Scene(NRI &nri, NRICommandQueue &q, const std::string_view &filename) {
 	std::vector<const NRIBLAS *>	 blasList;
 	std::vector<glm::mat4x3> transforms;
 	for(const auto &obj : meshObjects) {
-		dbLog(dbg::LOG_DEBUG, "Adding mesh index ", obj.meshIndex, " of ", meshes.size(), " to TLAS.");
 		assert(obj.meshIndex < meshes.size());
 		blasList.push_back(&(meshes[obj.meshIndex].getBLAS()));
 		transforms.push_back(glm::mat4x3(obj.transform));
 	}
 	dbLog(dbg::LOG_INFO, "Creating TLAS with ", blasList.size(), " instances.");
-	//tlas = nri.createTLAS(blasList, transforms);
+	tlas = nri.createTLAS(blasList, transforms);
+	auto cmdBuf = nri.createCommandBuffer(nri.getDefaultCommandPool());
+	tlas->build(*cmdBuf);
+	dbLog(dbg::LOG_DEBUG, "Submitting TLAS build command buffer.");
+	auto key = q.submit(*cmdBuf);
+	q.wait(key);
+	tlas->buildFinished();
+
 
 
 	if (doc.FindMember("textures") != doc.MemberEnd()) {
@@ -105,7 +111,6 @@ Scene::Scene(NRI &nri, NRICommandQueue &q, const std::string_view &filename) {
 				// textures.emplace_back(new EdgeTexture(obj));
 			} else if (obj["type"].GetString() == std::string_view("bitmap")) {
 				std::string filename = obj["file_path"].GetString();
-				dbLog(dbg::LOG_DEBUG, "Original texture file path: ", filename);
 #ifdef _WIN32
 				if (filename.starts_with("/home/")) {	  // hack to fix absolute paths from linux exports
 					dbLog(dbg::LOG_WARNING, "Texture file path '", filename,
