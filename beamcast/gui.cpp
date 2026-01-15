@@ -3,7 +3,7 @@
 #include "../native/nriFactory.hpp"
 #include "renderer.hpp"
 
-NRI *BeamcastApplication::chooseNRI() {
+std::unique_ptr<NRI> BeamcastApplication::chooseNRI() {
 	auto	   &factory		   = NRIFactory::getInstance();
 	std::string selectedString = factory.selectNRIGUI();
 

@@ -95,3 +95,13 @@ void NRIQWindow::mouseMoveEvent(QMouseEvent *event) {
 	for (const auto &cb : mouseCallbacks)
 		cb(event);
 }
+
+NRIResourceHandle NRIImageView::getHandle() {
+	if (handle == NRIResourceHandle::INVALID_HANDLE) {
+		handle = createHandle();
+		if (handle == NRIResourceHandle::INVALID_HANDLE) {
+			dbLog(dbg::LOG_ERROR, "Failed to create NRIImageView handle! This is not fatal, but usage may fail.");
+		}
+	}
+	return handle;
+}

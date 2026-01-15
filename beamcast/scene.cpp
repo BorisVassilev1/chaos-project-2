@@ -38,11 +38,11 @@ MeshObject::MeshObject(uint32_t meshIndex, const rapidjson::Value &obj) : meshIn
 	}
 }
 
-Scene::Scene(NRI &nri, NRICommandQueue &q, const std::string_view &filename) : nri(nri) {
+Scene::Scene(NRI &nri, NRICommandQueue &q, const std::string_view &filename) : nri(&nri) {
 	rapidjson::Document doc;
 	scenePath = filename;
 	std::ifstream file(filename.data());
-	if (!file.is_open()) { throw std::runtime_error("Failed to open scene file: " + std::string(filename)); }
+	if (!file.is_open()) { throw std::runtime_error(std::format("Failed to open scene file: {}", filename)); }
 	std::string str((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
 
 	rapidjson::ParseResult ok = doc.Parse(str.c_str());
@@ -56,8 +56,8 @@ Scene::Scene(NRI &nri, NRICommandQueue &q, const std::string_view &filename) : n
 			  "Context: ",
 			  str.substr(ind > 20 ? ind - 20 : 0, 40));
 
-		throw std::runtime_error("Failed to parse scene file: " + std::string(filename) + " Error: " +
-								 std::string(GetParseError_En(ok.Code())) + " Offset: " + std::to_string(ok.Offset()));
+		throw std::runtime_error(std::format("Failed to parse scene file: {} Error: {} Offset: {}", filename,
+											 GetParseError_En(ok.Code()), ok.Offset()));
 	}
 
 	if (doc.HasMember("meshes")) {
@@ -126,15 +126,15 @@ Scene::Scene(NRI &nri, NRICommandQueue &q, const std::string_view &filename) : n
 
 				dbLog(dbg::LOG_INFO, "Loading texture '", obj["name"].GetString(), "' from file: ", fullPath.string());
 				auto [image, memory] = createImage2D(fullPath.string(), nri, q);
-				textures.push_back(std::move(image));
+				textures.emplace_back(std::move(image), image->createTextureView());
 				memoryAllocations.push_back(std::move(memory));
 				found = true;
 			} else {
-				throw std::runtime_error("Unknown texture type: " + std::string(obj["type"].GetString()));
+				throw std::runtime_error(std::format("Unknown texture type: {}", obj["type"].GetString()));
 			}
 
 			if (found) {
-				textureMap[obj["name"].GetString()] = textures.back().get();
+				textureMap[obj["name"].GetString()] = textures.back().view.get();
 			} else dbLog(dbg::LOG_WARNING, "Texture '", obj["name"].GetString(), "' not added to texture map.");
 		}
 	}
@@ -155,7 +155,7 @@ Scene::Scene(NRI &nri, NRICommandQueue &q, const std::string_view &filename) : n
 			} else if (j["type"].GetString() == std::string_view("constant")) {
 				materials.emplace_back(std::make_unique<ConstantMaterial>(j));
 			} else {
-				throw std::runtime_error("Unknown material type: " + std::string(j["type"].GetString()));
+				throw std::runtime_error(std::format("Unknown material type: {}", j["type"].GetString()));
 			}
 		}
 	}
@@ -171,15 +171,14 @@ void Scene::render(NRICommandBuffer &commandBuffer, NRIGraphicsProgram &program,
 		program.setPushConstants(commandBuffer, &modelViewProjection, sizeof(modelViewProjection), 0);
 
 		NRIResourceHandle textureHandle = NRIResourceHandle::INVALID_HANDLE;
-		if (nri.supportsTextures())
-			textureHandle = material->getTextureHandle();
+		if (nri->supportsTextures()) textureHandle = material->getTextureHandle();
 		program.setPushConstants(commandBuffer, &textureHandle, sizeof(PushConstantData), sizeof(modelViewProjection));
 
 		mesh.draw(commandBuffer, program);
 	}
 }
 
-NRIImage2D *Scene::getTexture(const std::string_view &name) const {
+NRIImageView *Scene::getTexture(const std::string_view &name) const {
 	auto it = textureMap.find(name);
 	if (it != textureMap.end()) {
 		return it->second;

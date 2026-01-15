@@ -616,7 +616,7 @@ std::vector<ComPtr<ID3DBlob>> DX12NRIProgramBuilder::compileShaderModules(
 		std::wstring wSourceFile = std::wstring(shaderCreateInfo.sourceFile.begin(), shaderCreateInfo.sourceFile.end());
 		HRESULT		 hr			 = utils->LoadFile(wSourceFile.c_str(), nullptr, &sourceBlob);
 		if (FAILED(hr)) {
-			throw std::runtime_error("Failed to load shader source file: " + std::string(shaderCreateInfo.sourceFile));
+			throw std::runtime_error(std::format("Failed to load shader source file: {}", shaderCreateInfo.sourceFile));
 		}
 
 		std::vector<LPCWSTR> arguments;
@@ -653,7 +653,7 @@ std::vector<ComPtr<ID3DBlob>> DX12NRIProgramBuilder::compileShaderModules(
 		hr = compiler->Compile(&buffer, arguments.data(), static_cast<UINT32>(arguments.size()), includeHandler.Get(),
 							   IID_PPV_ARGS(&result));
 		if (FAILED(hr)) {
-			throw std::runtime_error("Failed to compile shader: " + std::string(shaderCreateInfo.sourceFile));
+			throw std::runtime_error(std::format("Failed to compile shader: {}", shaderCreateInfo.sourceFile));
 		}
 		includeHandler->reset();
 
@@ -1115,7 +1115,8 @@ std::unique_ptr<NRITLAS> DX12NRI::createTLAS(const std::span<const NRIBLAS *>	  
 }
 
 int __reg_dx12_nri = []() {
-	NRIFactory::getInstance().registerNRI("DirectX 12", []() -> NRI * { return new DX12NRI(); });
+	NRIFactory::getInstance().registerNRI("DirectX 12",
+										  []() -> std::unique_ptr<NRI> { return std::make_unique<DX12NRI>(); });
 	return 0;
 }();
 

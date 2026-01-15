@@ -5,28 +5,29 @@
 #include <string>
 #include <util/utils.hpp>
 #include <chrono>
+#include "utils.hpp"
 
 /// simple progress logger class
 class PercentLogger {
 	std::string			name;
 	std::size_t			total;
 	std::atomic_int64_t current;
-	std::size_t percent = 1;
+	std::size_t			percent = 1;
 
 	std::mutex mutex;
 
    public:
-	PercentLogger(const std::string& name, std::size_t total) : name(name), total(total), current(0) {
+	PercentLogger(const std::string &name, std::size_t total) : name(name), total(total), current(0) {
 		std::lock_guard lock(mutex);
 		dbLogR(dbg::LOG_INFO, name, ": 0%");
 		percent = std::max(total / 100, 1lu);
 	}
 
 	inline constexpr void step() {
-		current.fetch_add(1, std::memory_order_relaxed);
-		if (current.load(std::memory_order_relaxed) % percent == 0) {
+		auto c = current.fetch_add(1, std::memory_order_relaxed) + 1;
+		if (c % percent == 0) {
 			std::lock_guard lock(mutex);
-			dbLogR(dbg::LOG_INFO, name, ": ", (current * 100 / total), "%");
+			dbLogR(dbg::LOG_INFO, name, ": ", (c * 100 / total), "%");
 		}
 	}
 
@@ -36,7 +37,6 @@ class PercentLogger {
 	}
 };
 
-
 /// very simple timer class
 class Timer {
 	std::chrono::high_resolution_clock::time_point start;
@@ -44,14 +44,12 @@ class Timer {
    public:
 	Timer() : start(std::chrono::high_resolution_clock::now()) {}
 
-	template<typename T>
+	template <typename T>
 	inline auto elapsed() const {
-		auto end = std::chrono::high_resolution_clock::now();
+		auto end	  = std::chrono::high_resolution_clock::now();
 		auto duration = std::chrono::duration_cast<T>(end - start);
 		return duration.count();
 	}
 
-	inline void reset() {
-		start = std::chrono::high_resolution_clock::now();
-	}
+	inline void reset() { start = std::chrono::high_resolution_clock::now(); }
 };

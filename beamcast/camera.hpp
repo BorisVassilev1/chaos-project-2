@@ -37,7 +37,7 @@ class Camera {
 	glm::mat4 getViewProjectionMatrix() const;
 	void setAspectRatio(float ratio);
 	void setResolution(uint32_t width, uint32_t height);
-	void update(IsKeyPressed ikp, float deltaTime);
+	void update(const IsKeyPressed &ikp, float deltaTime);
 	void handleMouseEvent(QMouseEvent *event);
 	void toggleControls();
 };

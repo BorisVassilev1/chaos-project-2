@@ -19,6 +19,7 @@ class BeamcastRenderer : public Renderer {
 	std::unique_ptr<NRIImage2D>	   texture;
 	std::unique_ptr<NRIAllocation> textureMemory;
 	NRIResourceHandle			   textureHandle;
+	std::unique_ptr<NRIImageView>  textureView;
 
 	std::unique_ptr<Scene> scene;
 
@@ -35,13 +36,13 @@ class BeamcastRenderer : public Renderer {
 		mesh = std::make_unique<TriangleMesh>(nri, window.getMainQueue());
 
 		scene = std::make_unique<Scene>(nri, window.getMainQueue(), PROJECT_ROOT_DIR "/export.json");
-		if (nri.supportsRayTracing())
-			NRIResourceHandle sceneTextureHandle = scene->getTLAS().getHandle();
+		if (nri.supportsRayTracing()) NRIResourceHandle sceneTextureHandle = scene->getTLAS().getHandle();
 
 		if (nri.supportsTextures()) {
 			std::tie(texture, textureMemory) =
 				createImage2D(PROJECT_ROOT_DIR "textures/bricks/albedo.jpg", nri, window.getMainQueue());
-			textureHandle = texture->getImageViewHandle();
+			textureView	  = texture->createTextureView();
+			textureHandle = textureView->getHandle();
 		}
 
 		auto shaderBuilder = nri.createProgramBuilder();
@@ -53,7 +54,7 @@ class BeamcastRenderer : public Renderer {
 					 .setPrimitiveType(NRI::PrimitiveType::PRIMITIVE_TYPE_TRIANGLES)
 					 .setPushConstantRanges({Scene::getPushConstantRange()})
 					 .buildGraphicsProgram();
-	
+
 		shaderBuilder = nri.createProgramBuilder();
 		/*rayTracingShader = shaderBuilder
 							   ->addShaderModule({PROJECT_ROOT_DIR "shaders/raygen.hlsl", "RayGenMain",
@@ -79,7 +80,7 @@ class BeamcastRenderer : public Renderer {
 
 	void mouseEvent(QMouseEvent *event) { camera.handleMouseEvent(event); }
 
-	void render(NRIImage2D &currentImage, NRICommandBuffer &cmdBuf) override {
+	void render(const NRIImageAndViewRef &currentImage, NRICommandBuffer &cmdBuf) override {
 		camera.update(isKeyPressed, window->deltaTime());
 		++frameCount;
 
@@ -99,7 +100,7 @@ class BeamcastRenderer : public Renderer {
 
 		window->endRendering(cmdBuf);
 
-		currentImage.prepareForPresent(cmdBuf);
+		currentImage.image.prepareForPresent(cmdBuf);
 
 		cmdBuf.end();
 	}

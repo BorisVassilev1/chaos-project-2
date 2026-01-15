@@ -17,7 +17,7 @@ class BeamcastApplication : public QApplication {
 
 	QWidget *viewport;
 
-	NRI *chooseNRI();
+	std::unique_ptr<NRI> chooseNRI();
 
    public:
 	BeamcastApplication(int &argc, char **argv);

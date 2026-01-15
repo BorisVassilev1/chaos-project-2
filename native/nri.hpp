@@ -351,6 +351,18 @@ class NRIBuffer {
 	virtual void bindAsIndexBuffer(NRICommandBuffer &commandBuffer, std::size_t offset, NRI::IndexType indexType) = 0;
 };
 
+class NRIImageView {
+   protected:
+	NRIResourceHandle		  handle;
+	virtual NRIResourceHandle createHandle() const = 0;
+
+   public:
+	NRIImageView() : handle(NRIResourceHandle::INVALID_HANDLE) {}
+	virtual ~NRIImageView() {}
+
+	NRIResourceHandle getHandle();
+};
+
 class NRIImage2D {
    public:
 	virtual ~NRIImage2D() {}
@@ -367,7 +379,9 @@ class NRIImage2D {
 	virtual uint32_t getWidth() const  = 0;
 	virtual uint32_t getHeight() const = 0;
 
-	virtual NRIResourceHandle getImageViewHandle() = 0;
+	virtual std::unique_ptr<NRIImageView> createRenderTargetView() = 0;
+	virtual std::unique_ptr<NRIImageView> createTextureView()	   = 0;
+	virtual std::unique_ptr<NRIImageView> createStorageView()	   = 0;
 };
 
 class NRICommandPool {
@@ -459,9 +473,28 @@ class NRITLAS {
 	virtual void build(NRICommandBuffer &commandBuffer) = 0;
 	virtual void buildFinished() {}
 
-	virtual NRIResourceHandle getHandle() = 0;
+	virtual NRIResourceHandle getHandle() const = 0;
 
 	virtual ~NRITLAS() {}
+};
+
+template <class ImageType, class ImageViewType>
+class NRIImageAndView {
+   public:
+	ImageType	  image;
+	ImageViewType view;
+};
+
+class NRIImageAndViewPtr {
+   public:
+	std::unique_ptr<NRIImage2D>	  image;
+	std::unique_ptr<NRIImageView> view;
+};
+
+class NRIImageAndViewRef {
+   public:
+	NRIImage2D	 &image;
+	NRIImageView &view;
 };
 
 class Renderer : public QWidget {
@@ -470,8 +503,8 @@ class Renderer : public QWidget {
 
    public:
 	Renderer(NRI &nri) : nri(nri) {}
-	virtual void initialize(NRIQWindow &window)								= 0;
-	virtual void render(NRIImage2D &currentImage, NRICommandBuffer &cmdBuf) = 0;
+	virtual void initialize(NRIQWindow &window)									 = 0;
+	virtual void render(const NRIImageAndViewRef &img, NRICommandBuffer &cmdBuf) = 0;
 	virtual ~Renderer() {}
 };
 
@@ -512,8 +545,8 @@ class NRIQWindow : public QWindow {
 
 	virtual void drawFrame() = 0;
 
-	virtual void beginRendering(NRICommandBuffer &cmdBuf, NRIImage2D &renderTarget) = 0;
-	virtual void endRendering(NRICommandBuffer &cmdBuf)								= 0;
+	virtual void beginRendering(NRICommandBuffer &cmdBuf, const NRIImageAndViewRef &renderTarget) = 0;
+	virtual void endRendering(NRICommandBuffer &cmdBuf)											  = 0;
 
 	auto deltaTime() const { return _deltaTime; }
 

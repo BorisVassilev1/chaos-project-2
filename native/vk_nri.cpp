@@ -207,7 +207,7 @@ std::vector<const char *> checkExtensionSupport() {
 		}
 
 		if (!extensionFound) {
-			if (required) throw std::runtime_error("Required extension not found!: " + std::string(extensionName));
+			if (required) throw std::runtime_error(std::format("Required extension not found! : {}", extensionName));
 			else dbLog(dbg::LOG_WARNING, "Optional extension not found: ", extensionName);
 		} else {
 			availableExtensionNames.push_back(extensionName);
@@ -307,28 +307,6 @@ void VulkanNRI::pickPhysicalDevice() {
 			physicalDevice = device;
 			// break;
 		}
-	}
-
-	// list acceleration structure properties
-	vk::PhysicalDeviceAccelerationStructurePropertiesKHR accelerationStructureProperties;
-	{
-		vk::PhysicalDeviceProperties2 deviceProperties2;
-		deviceProperties2.pNext = &accelerationStructureProperties;
-		vkGetPhysicalDeviceProperties2(*physicalDevice, &*deviceProperties2);
-		dbLog(dbg::LOG_INFO, "Acceleration Structure Properties:");
-		dbLog(dbg::LOG_INFO, " maxGeometryCount: ", accelerationStructureProperties.maxGeometryCount);
-		dbLog(dbg::LOG_INFO, " maxInstanceCount: ", accelerationStructureProperties.maxInstanceCount);
-		dbLog(dbg::LOG_INFO, " maxPrimitiveCount: ", accelerationStructureProperties.maxPrimitiveCount);
-		dbLog(dbg::LOG_INFO, " maxPerStageDescriptorAccelerationStructures: ",
-			  accelerationStructureProperties.maxPerStageDescriptorAccelerationStructures);
-		dbLog(dbg::LOG_INFO, " maxPerStageDescriptorUpdateAfterBindAccelerationStructures: ",
-			  accelerationStructureProperties.maxPerStageDescriptorUpdateAfterBindAccelerationStructures);
-		dbLog(dbg::LOG_INFO, " maxDescriptorSetAccelerationStructures: ",
-			  accelerationStructureProperties.maxDescriptorSetAccelerationStructures);
-		dbLog(dbg::LOG_INFO, " maxDescriptorSetUpdateAfterBindAccelerationStructures: ",
-			  accelerationStructureProperties.maxDescriptorSetUpdateAfterBindAccelerationStructures);
-		dbLog(dbg::LOG_INFO, " minAccelerationStructureScratchOffsetAlignment: ",
-			  accelerationStructureProperties.minAccelerationStructureScratchOffsetAlignment);
 	}
 
 	queueFamilyIndices = findQueueFamilies(physicalDevice);
@@ -444,7 +422,8 @@ VulkanDescriptorAllocator::VulkanDescriptorAllocator(VulkanNRI &nri)
 
 	const vk::DescriptorBindingFlags bindingFlags = vk::DescriptorBindingFlagBits::eUpdateAfterBind;
 
-	const vk::DescriptorBindingFlags bindingFlagsArr[] = {bindingFlags, bindingFlags, bindingFlags, bindingFlags, bindingFlags};
+	const vk::DescriptorBindingFlags bindingFlagsArr[] = {bindingFlags, bindingFlags, bindingFlags, bindingFlags,
+														  bindingFlags};
 
 	vk::DescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsInfo(samplerBindings.size(), bindingFlagsArr);
 	layoutInfo.pNext = &bindingFlagsInfo;
@@ -455,7 +434,7 @@ VulkanDescriptorAllocator::VulkanDescriptorAllocator(VulkanNRI &nri)
 	bigDescriptorSet							 = std::move(descriptorSets[0]);
 }
 
-NRIResourceHandle VulkanDescriptorAllocator::addUniformBufferDescriptor(VulkanNRIBuffer &buffer) {
+NRIResourceHandle VulkanDescriptorAllocator::addUniformBufferDescriptor(const VulkanNRIBuffer &buffer) {
 	uint32_t descriptorIndex = currentBufferDescriptorIndex++;
 
 	vk::DescriptorBufferInfo bufferInfo(buffer.getBuffer(), 0, VK_WHOLE_SIZE);
@@ -468,11 +447,10 @@ NRIResourceHandle VulkanDescriptorAllocator::addUniformBufferDescriptor(VulkanNR
 	return NRIResourceHandle(NRIResourceHandle::ResourceType::RESOURCE_TYPE_BUFFER, false, descriptorIndex);
 }
 
-NRIResourceHandle VulkanDescriptorAllocator::addSamplerImageDescriptor(VulkanNRIImage2D &image) {
+NRIResourceHandle VulkanDescriptorAllocator::addSamplerImageDescriptor(const VulkanNRITexture2D &image) {
 	uint32_t descriptorIndex = currentImageDescriptorIndex++;
 
-	vk::DescriptorImageInfo imageInfo(*(image.getSampler()), *(image.getImageView()),
-									  vk::ImageLayout::eShaderReadOnlyOptimal);
+	vk::DescriptorImageInfo imageInfo(*(image.getSampler()), *(image.get()), vk::ImageLayout::eShaderReadOnlyOptimal);
 
 	vk::WriteDescriptorSet descriptorWrite(bigDescriptorSet, 0, descriptorIndex, 1,
 										   vk::DescriptorType::eCombinedImageSampler, &imageInfo, nullptr, nullptr);
@@ -481,18 +459,29 @@ NRIResourceHandle VulkanDescriptorAllocator::addSamplerImageDescriptor(VulkanNRI
 
 	return NRIResourceHandle(NRIResourceHandle::ResourceType::RESOURCE_TYPE_IMAGE_SAMPLER, false, descriptorIndex);
 }
-NRIResourceHandle VulkanDescriptorAllocator::addAccelerationStructureDescriptor(VulkanNRITLAS &tlas) {
+NRIResourceHandle VulkanDescriptorAllocator::addAccelerationStructureDescriptor(const VulkanNRITLAS &tlas) {
 	uint32_t descriptorIndex = currentASDescriptorIndex++;
 
-	vk::WriteDescriptorSetAccelerationStructureKHR descriptorASInfo(
-		1, &*const_cast<VulkanNRITLAS &>(tlas).getTLAS());
-	vk::WriteDescriptorSet descriptorWrite(bigDescriptorSet, 4, descriptorIndex, 1,
-										   vk::DescriptorType::eAccelerationStructureKHR, nullptr, nullptr, nullptr,
-										   &descriptorASInfo);
+	vk::WriteDescriptorSetAccelerationStructureKHR descriptorASInfo(1, &*const_cast<VulkanNRITLAS &>(tlas).getTLAS());
+	vk::WriteDescriptorSet						   descriptorWrite(bigDescriptorSet, 4, descriptorIndex, 1,
+																   vk::DescriptorType::eAccelerationStructureKHR, nullptr, nullptr, nullptr,
+																   &descriptorASInfo);
 	(*nri.getDevice()).updateDescriptorSets(1, &descriptorWrite, 0, nullptr);
 
-	return NRIResourceHandle(NRIResourceHandle::ResourceType::RESOURCE_TYPE_TLAS, false,
-							 descriptorIndex);
+	return NRIResourceHandle(NRIResourceHandle::ResourceType::RESOURCE_TYPE_TLAS, false, descriptorIndex);
+}
+
+NRIResourceHandle VulkanDescriptorAllocator::addStorageImageDescriptor(const VulkanNRIStorageImage2D &image) {
+	uint32_t descriptorIndex = currentImageDescriptorIndex++;
+
+	vk::DescriptorImageInfo imageInfo(nullptr, *(image.get()), vk::ImageLayout::eGeneral);
+
+	vk::WriteDescriptorSet descriptorWrite(bigDescriptorSet, 1, descriptorIndex, 1, vk::DescriptorType::eStorageImage,
+										   &imageInfo, nullptr, nullptr);
+
+	(*nri.getDevice()).updateDescriptorSets(1, &descriptorWrite, 0, nullptr);
+
+	return NRIResourceHandle(NRIResourceHandle::ResourceType::RESOURCE_TYPE_STORAGE_IMAGE, true, descriptorIndex);
 }
 
 vk::MemoryPropertyFlags typeRequest2vkMemoryProperty[] = {
@@ -637,6 +626,59 @@ vk::DeviceAddress VulkanNRIBuffer::getAddress() {
 	return nri->getDevice().getBufferAddress(addressInfo);
 }
 
+VulkanNRIImageView::VulkanNRIImageView(VulkanNRI &nri, vk::raii::ImageView &&imgView,
+									   vk::Format fmt)
+	: NRIImageView(), nri(&nri), imageView(std::move(imgView)), format(fmt) {}
+
+VulkanNRIRenderTarget::VulkanNRIRenderTarget(VulkanNRI &nri, VulkanNRIImage2D &image2D)
+	: VulkanNRIImageView(nri, nullptr, image2D.getFormat()) {
+	vk::ImageViewCreateInfo imageViewInfo(
+		{}, image2D.get(), vk::ImageViewType::e2D, vk::Format(this->format),
+		vk::ComponentMapping(vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity,
+							 vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity),
+		vk::ImageSubresourceRange(image2D.getAspectFlags(), 0, 1, 0, 1));
+	imageView = vk::raii::ImageView(nri.getDevice(), imageViewInfo);
+}
+
+NRIResourceHandle VulkanNRIRenderTarget::createHandle() const {
+	dbLog(dbg::LOG_ERROR, "VulkanNRIRenderTarget::createHandle not implemented!");
+	return NRIResourceHandle::INVALID_HANDLE;
+}
+
+VulkanNRITexture2D::VulkanNRITexture2D(VulkanNRI &nri, VulkanNRIImage2D &image2D)
+	: VulkanNRIImageView(nri, nullptr, image2D.getFormat()), sampler(nullptr) {
+	vk::ImageViewCreateInfo imageViewInfo(
+		{}, image2D.get(), vk::ImageViewType::e2D, vk::Format(this->format),
+		vk::ComponentMapping(vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity,
+							 vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity),
+		vk::ImageSubresourceRange(image2D.getAspectFlags(), 0, 1, 0, 1));
+	imageView = vk::raii::ImageView(nri.getDevice(), imageViewInfo);
+
+	vk::SamplerCreateInfo samplerInfo({}, vk::Filter::eLinear, vk::Filter::eLinear, vk::SamplerMipmapMode::eLinear,
+									  vk::SamplerAddressMode::eRepeat, vk::SamplerAddressMode::eRepeat,
+									  vk::SamplerAddressMode::eRepeat, 0.0f, VK_FALSE, 1.0f, VK_FALSE,
+									  vk::CompareOp::eAlways, 0.0f, 0.0f, vk::BorderColor::eIntOpaqueBlack, VK_FALSE);
+	sampler = vk::raii::Sampler(nri.getDevice(), samplerInfo);
+}
+
+NRIResourceHandle VulkanNRITexture2D::createHandle() const {
+	return nri->getDescriptorAllocator().addSamplerImageDescriptor(*this);
+}
+
+VulkanNRIStorageImage2D::VulkanNRIStorageImage2D(VulkanNRI &nri, VulkanNRIImage2D &image2D)
+	: VulkanNRIImageView(nri, nullptr, image2D.getFormat()) {
+	vk::ImageViewCreateInfo imageViewInfo(
+		{}, image2D.get(), vk::ImageViewType::e2D, vk::Format(this->format),
+		vk::ComponentMapping(vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity,
+							 vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity),
+		vk::ImageSubresourceRange(image2D.getAspectFlags(), 0, 1, 0, 1));
+	imageView = vk::raii::ImageView(nri.getDevice(), imageViewInfo);
+}
+
+NRIResourceHandle VulkanNRIStorageImage2D::createHandle() const {
+	return nri->getDescriptorAllocator().addStorageImageDescriptor(*this);
+}
+
 NRI::MemoryRequirements &NRI::MemoryRequirements::setTypeRequest(MemoryTypeRequest tr) {
 	typeRequest = tr;
 	return *this;
@@ -663,20 +705,6 @@ void VulkanNRIImage2D::bindMemory(NRIAllocation &allocation, std::size_t offset)
 	VulkanNRIAllocation &vulkanAllocation = static_cast<VulkanNRIAllocation &>(allocation);
 
 	vkBindImageMemory(**device, image.get(), vulkanAllocation.getMemory(), offset);
-
-	vk::ImageViewCreateInfo imageViewInfo(
-		{}, image.get(), vk::ImageViewType::e2D, vk::Format(this->format),
-		vk::ComponentMapping(vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity,
-							 vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity),
-		vk::ImageSubresourceRange(aspectFlags, 0, 1, 0, 1));
-
-	this->imageView = vk::raii::ImageView(*device, imageViewInfo);
-
-	vk::SamplerCreateInfo samplerInfo({}, vk::Filter::eLinear, vk::Filter::eLinear, vk::SamplerMipmapMode::eLinear,
-									  vk::SamplerAddressMode::eRepeat, vk::SamplerAddressMode::eRepeat,
-									  vk::SamplerAddressMode::eRepeat, 0.0f, VK_FALSE, 1.0f, VK_FALSE,
-									  vk::CompareOp::eAlways, 0.0f, 0.0f, vk::BorderColor::eIntOpaqueBlack, VK_FALSE);
-	this->sampler = vk::raii::Sampler(*device, samplerInfo);
 }
 
 void VulkanNRIImage2D::clear(NRICommandBuffer &commandBuffer, glm::vec4 color) {
@@ -717,14 +745,6 @@ void VulkanNRIImage2D::copyFrom(NRICommandBuffer &commandBuffer, NRIBuffer &srcB
 											 region);
 }
 
-NRIResourceHandle VulkanNRIImage2D::getImageViewHandle() {
-	if (imageViewHandle == NRIResourceHandle::INVALID_HANDLE)
-		imageViewHandle =
-			nri->getDescriptorAllocator().addSamplerImageDescriptor(*const_cast<VulkanNRIImage2D *>(this));
-	assert(imageViewHandle != NRIResourceHandle::INVALID_HANDLE);
-	return imageViewHandle;
-}
-
 vk::ImageAspectFlags VulkanNRIImage2D::getAspectFlags(vk::Format format) {
 	switch (format) {
 		case vk::Format::eUndefined: throw std::runtime_error("Undefined format has no aspect flags.");
@@ -756,9 +776,7 @@ VulkanNRIImage2D::VulkanNRIImage2D(VulkanNRI &nri, uint32_t width, uint32_t heig
 	  device(&nri.getDevice()),
 	  layout(vk::ImageLayout::eUndefined),
 	  format((vk::Format)nriFormat2vkFormat[static_cast<int>(format)]),
-	  imageView(nullptr),
 	  aspectFlags(getAspectFlags(this->format)),
-	  sampler(nullptr),
 	  width(width),
 	  height(height) {
 	assert(format != NRI::Format::FORMAT_UNDEFINED);
@@ -775,6 +793,18 @@ VulkanNRIImage2D::VulkanNRIImage2D(VulkanNRI &nri, uint32_t width, uint32_t heig
 								  vk::ImageLayout::eUndefined);
 
 	this->image = vk::raii::Image(nri.getDevice(), imageInfo);
+}
+
+std::unique_ptr<NRIImageView> VulkanNRIImage2D::createRenderTargetView() {
+	return std::make_unique<VulkanNRIRenderTarget>(*nri, *this);
+}
+
+std::unique_ptr<NRIImageView> VulkanNRIImage2D::createTextureView() {
+	return std::make_unique<VulkanNRITexture2D>(*nri, *this);
+}
+
+std::unique_ptr<NRIImageView> VulkanNRIImage2D::createStorageView() {
+	return std::make_unique<VulkanNRIStorageImage2D>(*nri, *this);
 }
 
 std::unique_ptr<NRICommandPool> VulkanNRI::createCommandPool() {
@@ -847,18 +877,13 @@ void VulkanNRIQWindow::createSwapChain(uint32_t &width, uint32_t &height) {
 	swapChain			 = vk::raii::SwapchainKHR(nri.getDevice(), _swapChain);
 	auto swapChainImages = swapChain.getImages();
 	for (const auto &image : swapChainImages) {
-		vk::ImageViewCreateInfo imageViewInfo(
-			{}, image, vk::ImageViewType::e2D, vk::Format::eB8G8R8A8Unorm,
-			vk::ComponentMapping(vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity,
-								 vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity),
-			vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1));
-		vk::raii::ImageView imageView = vk::raii::ImageView(nri.getDevice(), imageViewInfo);
+		VulkanNRIImage2D nriImage = VulkanNRIImage2D(nri, image, vk::ImageLayout::eUndefined,
+													 vk::Format::eB8G8R8A8Unorm, nri.getDevice(), width, height);
 
-		VulkanNRIImage2D nriImage =
-			VulkanNRIImage2D(nri, image, vk::ImageLayout::eUndefined, vk::Format::eB8G8R8A8Unorm, nri.getDevice(),
-							 std::move(imageView), width, height);
-		this->swapChainImages.push_back(std::move(nriImage));
-		this->swapChainImages.back().transitionLayout(
+		VulkanNRIRenderTarget renderTarget = VulkanNRIRenderTarget(nri, nriImage);
+
+		this->swapChainImages.emplace_back(std::move(nriImage), std::move(renderTarget));
+		this->swapChainImages.back().image.transitionLayout(
 			*commandBuffer, vk::ImageLayout::ePresentSrcKHR, vk::AccessFlagBits::eNone, vk::AccessFlagBits::eMemoryRead,
 			vk::PipelineStageFlagBits::eTopOfPipe, vk::PipelineStageFlagBits::eBottomOfPipe);
 	}
@@ -874,6 +899,7 @@ void VulkanNRIQWindow::createSwapChain(uint32_t &width, uint32_t &height) {
 		vk::AccessFlagBits::eDepthStencilAttachmentRead | vk::AccessFlagBits::eDepthStencilAttachmentWrite,
 		vk::PipelineStageFlagBits::eTopOfPipe,
 		vk::PipelineStageFlagBits::eEarlyFragmentTests | vk::PipelineStageFlagBits::eLateFragmentTests);
+	depthImageView = VulkanNRIRenderTarget(nri, *depthImage);
 }
 
 void VulkanNRIQWindow::drawFrame() {
@@ -885,12 +911,13 @@ void VulkanNRIQWindow::drawFrame() {
 	assert(result == vk::Result::eSuccess);
 	auto imageIndex = swapChain.acquireNextImage(UINT64_MAX, *imageAvailableSemaphore, nullptr);
 
-	swapChainImages[imageIndex.value].transitionLayout(
+	swapChainImages[imageIndex.value].image.transitionLayout(
 		*commandBuffer, vk::ImageLayout::eColorAttachmentOptimal, vk::AccessFlagBits::eMemoryRead,
 		vk::AccessFlagBits::eColorAttachmentWrite, vk::PipelineStageFlagBits::eBottomOfPipe,
 		vk::PipelineStageFlagBits::eColorAttachmentOutput);
 
-	renderer->render(swapChainImages[imageIndex.value], *commandBuffer);
+	auto &sci = swapChainImages[imageIndex.value];
+	renderer->render(NRIImageAndViewRef{sci.image, sci.view}, *commandBuffer);
 
 	vk::PipelineStageFlags stages = {vk::PipelineStageFlagBits::eColorAttachmentOutput};
 	presentQueue.queue.submit(vk::SubmitInfo(1, &(*imageAvailableSemaphore), &stages, 1, &*commandBuffer->commandBuffer,
@@ -917,16 +944,19 @@ void VulkanNRIQWindow::drawFrame() {
 	presentQueue.queue.waitIdle();
 }
 
-void VulkanNRIQWindow::beginRendering(NRICommandBuffer &cmdBuf, NRIImage2D &renderTarget) {
-	auto &rt	   = static_cast<VulkanNRIImage2D &>(renderTarget);
+void VulkanNRIQWindow::beginRendering(NRICommandBuffer &cmdBuf, const NRIImageAndViewRef &renderTarget) {
+	auto *rtp = dynamic_cast<const VulkanNRIRenderTarget *>(&renderTarget.view);
+	assert(rtp != nullptr);
+	auto &rt	   = *rtp;
+	auto &img	   = static_cast<const VulkanNRIImage2D &>(renderTarget.image);
 	auto &vkCmdBuf = static_cast<VulkanNRICommandBuffer &>(cmdBuf);
 
 	vk::RenderingInfo renderingInfo{};
 	renderingInfo.sType		 = vk::StructureType::eRenderingInfo;
-	renderingInfo.renderArea = vk::Rect2D({0, 0}, {rt.getWidth(), rt.getHeight()});
+	renderingInfo.renderArea = vk::Rect2D({0, 0}, {img.getWidth(), img.getHeight()});
 	vk::RenderingAttachmentInfo colorAttachment{};
 	colorAttachment.sType		= vk::StructureType::eRenderingAttachmentInfo;
-	colorAttachment.imageView	= rt.getImageView();
+	colorAttachment.imageView	= rt.get();
 	colorAttachment.imageLayout = vk::ImageLayout::eColorAttachmentOptimal;
 	colorAttachment.loadOp		= vk::AttachmentLoadOp::eClear;
 	colorAttachment.storeOp		= vk::AttachmentStoreOp::eStore;
@@ -939,7 +969,7 @@ void VulkanNRIQWindow::beginRendering(NRICommandBuffer &cmdBuf, NRIImage2D &rend
 
 	vk::RenderingAttachmentInfo depthAttachment{};
 	depthAttachment.sType		= vk::StructureType::eRenderingAttachmentInfo;
-	depthAttachment.imageView	= depthImage->getImageView();
+	depthAttachment.imageView	= depthImageView->get();
 	depthAttachment.imageLayout = vk::ImageLayout::eDepthStencilAttachmentOptimal;
 	depthAttachment.loadOp		= vk::AttachmentLoadOp::eClear;
 	depthAttachment.storeOp		= vk::AttachmentStoreOp::eDontCare;
@@ -951,9 +981,9 @@ void VulkanNRIQWindow::beginRendering(NRICommandBuffer &cmdBuf, NRIImage2D &rend
 
 	vkCmdBuf.commandBuffer.beginRendering(renderingInfo);
 
-	vkCmdBuf.commandBuffer.setViewport(
-		0, vk::Viewport(0.0f, 0.0f, static_cast<float>(rt.getWidth()), static_cast<float>(rt.getHeight()), 0.0f, 1.0f));
-	vkCmdBuf.commandBuffer.setScissor(0, vk::Rect2D({0, 0}, {rt.getWidth(), rt.getHeight()}));
+	vkCmdBuf.commandBuffer.setViewport(0, vk::Viewport(0.0f, 0.0f, static_cast<float>(img.getWidth()),
+													   static_cast<float>(img.getHeight()), 0.0f, 1.0f));
+	vkCmdBuf.commandBuffer.setScissor(0, vk::Rect2D({0, 0}, {img.getWidth(), img.getHeight()}));
 }
 
 void VulkanNRIQWindow::endRendering(NRICommandBuffer &cmdBuf) {
@@ -1004,7 +1034,7 @@ std::pair<std::vector<vk::raii::ShaderModule>, std::vector<vk::PipelineShaderSta
 		std::wstring			  wSourceFile = std::wstring(stageInfo.sourceFile.begin(), stageInfo.sourceFile.end());
 		HRESULT					  hr		  = utils->LoadFile(wSourceFile.c_str(), nullptr, &sourceBlob);
 		if (FAILED(hr)) {
-			throw std::runtime_error("Failed to load shader source file: " + std::string(stageInfo.sourceFile));
+			throw std::runtime_error(std::format("Failed to load shader source file: {}", stageInfo.sourceFile));
 		}
 
 		std::vector<LPCWSTR> arguments;
@@ -1046,7 +1076,7 @@ std::pair<std::vector<vk::raii::ShaderModule>, std::vector<vk::PipelineShaderSta
 		CComPtr<IDxcResult> result;
 		hr = compiler->Compile(&buffer, arguments.data(), static_cast<UINT32>(arguments.size()), includeHandler.get(),
 							   IID_PPV_ARGS(&result));
-		if (FAILED(hr)) { throw std::runtime_error("Failed to compile shader: " + std::string(stageInfo.sourceFile)); }
+		if (FAILED(hr)) { throw std::runtime_error(std::format("Failed to compile shader: {}", stageInfo.sourceFile)); }
 
 		CComPtr<IDxcBlobEncoding> errorBuffer;
 		result->GetErrorBuffer(&errorBuffer);
@@ -1626,8 +1656,8 @@ void VulkanNRITLAS::build(NRICommandBuffer &commandBuffer) {
 
 void VulkanNRITLAS::buildFinished() { this->tempBuildInfo.reset(); }
 
-NRIResourceHandle VulkanNRITLAS::getHandle() {
-	if(handle == NRIResourceHandle::INVALID_HANDLE) {
+NRIResourceHandle VulkanNRITLAS::getHandle() const {
+	if (handle == NRIResourceHandle::INVALID_HANDLE) {
 		handle = nri->getDescriptorAllocator().addAccelerationStructureDescriptor(*this);
 	}
 	return handle;
@@ -1672,6 +1702,7 @@ void VulkanNRICommandQueue::wait(SubmitKey key) {
 }
 
 static int __asd = []() {
-	NRIFactory::getInstance().registerNRI("Vulkan", []() -> NRI * { return new VulkanNRI(); });
+	NRIFactory::getInstance().registerNRI("Vulkan",
+										  []() -> std::unique_ptr<NRI> { return std::make_unique<VulkanNRI>(); });
 	return 0;
 }();

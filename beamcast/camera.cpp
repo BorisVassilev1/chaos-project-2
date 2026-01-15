@@ -40,7 +40,7 @@ void Camera::setResolution(uint32_t width, uint32_t height) {
 	updateProjectionMatrix();
 }
 
-void Camera::update(IsKeyPressed ikp, float deltaTime) {
+void Camera::update(const IsKeyPressed &ikp, float deltaTime) {
 	if (!controlsActive) return;
 
 	const float cameraSpeed = 5.0f;		// units per second

@@ -31,7 +31,7 @@ class Material {
 
 class DiffuseMaterial : public Material {
    public:
-	NRIImage2D *albedo;
+	NRIImageView *albedo;
 	glm::vec3  albedoColor;
 
 	DiffuseMaterial(const glm::vec3 &albedo) : albedo(nullptr), albedoColor(albedo) {}
@@ -42,7 +42,7 @@ class DiffuseMaterial : public Material {
 	virtual NRIResourceHandle getTextureHandle() const override {
 		if (albedo) {
 			// Assume albedo texture is bound as a sampler image at index 0
-			return albedo->getImageViewHandle();
+			return albedo->getHandle();
 		} else {
 			return NRIResourceHandle::INVALID_HANDLE;
 		}
