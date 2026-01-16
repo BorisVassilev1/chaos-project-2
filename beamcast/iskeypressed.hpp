@@ -6,6 +6,7 @@
 
 #include "utils.hpp"
 
+namespace beamcast {
 class IsKeyPressed {
 	bool keyStates[256] = {false};
 
@@ -17,3 +18,4 @@ class IsKeyPressed {
 	bool isKeyPressed(int keyCode) const;
 	bool keyEvent(QKeyEvent *event);
 };
+}	  // namespace beamcast

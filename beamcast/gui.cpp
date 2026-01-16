@@ -3,8 +3,9 @@
 #include "../native/nriFactory.hpp"
 #include "renderer.hpp"
 
-std::unique_ptr<NRI> BeamcastApplication::chooseNRI() {
-	auto	   &factory		   = NRIFactory::getInstance();
+namespace beamcast {
+std::unique_ptr<nri::NRI> BeamcastApplication::chooseNRI() {
+	auto	   &factory		   = nri::Factory::getInstance();
 	std::string selectedString = factory.selectNRIGUI();
 
 	if (!selectedString.empty()) {
@@ -57,3 +58,4 @@ void BeamcastApplication::frameCallback() {
 	}
 	++frameCountLastSecond;
 }
+}	  // namespace beamcast

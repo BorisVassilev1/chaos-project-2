@@ -27,9 +27,9 @@ class CustomIncludeHandler : public IDxcIncludeHandler {
 										 _COM_Outptr_result_maybenull_ IDxcBlob **ppIncludeSource) override {
 		CComPtr<IDxcBlobEncoding> pEncoding;
 		std::error_code			  ec;
-		std::filesystem::path	  path = std::filesystem::canonical(WIDE_TO_UNICODE(pFilename), ec);
+		std::filesystem::path	  path = std::filesystem::canonical(nri::WIDE_TO_UNICODE(pFilename), ec);
 		if (ec) {
-			dbLog(dbg::LOG_ERROR, "Failed to canonicalize include path: ", WIDE_TO_UNICODE(pFilename),
+			dbLog(dbg::LOG_ERROR, "Failed to canonicalize include path: ", nri::WIDE_TO_UNICODE(pFilename),
 				  " Error: ", ec.message());
 			return E_FAIL;
 		}
@@ -46,7 +46,7 @@ class CustomIncludeHandler : public IDxcIncludeHandler {
 			IncludedFiles.insert(path.string());
 			*ppIncludeSource = pEncoding.Detach();
 		} else {
-			dbLog(dbg::LOG_ERROR, "Failed to load include file: ", WIDE_TO_UNICODE(pFilename), " HR: ", hr);
+			dbLog(dbg::LOG_ERROR, "Failed to load include file: ", nri::WIDE_TO_UNICODE(pFilename), " HR: ", hr);
 		}
 		return hr;
 	}

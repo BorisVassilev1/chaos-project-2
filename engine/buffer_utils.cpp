@@ -1,8 +1,10 @@
 #include "buffer_utils.hpp"
 
+namespace beamcast {
 
-std::tuple<std::vector<std::size_t>, NRI::MemoryRequirements> getBufferOffsets(const std::vector<NRIBuffer *> &buffers) {
-	std::vector<NRI::MemoryRequirements> memReqs;
+std::tuple<std::vector<std::size_t>, nri::MemoryRequirements> getBufferOffsets(
+	const std::vector<nri::Buffer *> &buffers) {
+	std::vector<nri::MemoryRequirements> memReqs;
 	for (auto buffer : buffers) {
 		memReqs.push_back(buffer->getMemoryRequirements());
 	}
@@ -15,12 +17,11 @@ std::tuple<std::vector<std::size_t>, NRI::MemoryRequirements> getBufferOffsets(c
 
 		totalSize += req.size;
 	}
-	return {offsets, NRI::MemoryRequirements(totalSize, NRI::MemoryTypeRequest::MEMORY_TYPE_DEVICE, 0)};
+	return {offsets, nri::MemoryRequirements(totalSize, nri::MemoryTypeRequest::MEMORY_TYPE_DEVICE, 0)};
 }
 
-
-std::unique_ptr<NRIAllocation> allocateBindMemory(NRI &nri, const std::vector<NRIBuffer *> &buffers,
-												  NRI::MemoryTypeRequest memoryTypeRequest) {
+std::unique_ptr<nri::Allocation> allocateBindMemory(nri::NRI &nri, const std::vector<nri::Buffer *> &buffers,
+													nri::MemoryTypeRequest memoryTypeRequest) {
 	auto [offsets, memReq] = getBufferOffsets(buffers);
 
 	auto allocation = nri.allocateMemory(memReq.setTypeRequest(memoryTypeRequest));
@@ -29,3 +30,4 @@ std::unique_ptr<NRIAllocation> allocateBindMemory(NRI &nri, const std::vector<NR
 	}
 	return allocation;
 }
+}	  // namespace beamcast

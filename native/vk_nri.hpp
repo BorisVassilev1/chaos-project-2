@@ -14,13 +14,14 @@
 #include "nriFactory.hpp"
 #include "vulkan/vulkan.hpp"
 
+namespace nri {
 class VulkanNRI;
-class VulkanNRIBuffer;
-class VulkanNRIImage2D;
-class VulkanNRITLAS;
-class VulkanNRIImageView;
-class VulkanNRITexture2D;
-class VulkanNRIStorageImage2D;
+class VulkanBuffer;
+class VulkanImage2D;
+class VulkanTLAS;
+class VulkanImageView;
+class VulkanTexture2D;
+class VulkanStorageImage2D;
 
 /// A helper class to manage ownership of an object or a reference to an object
 /// template arguments can be for example: <vk::raii::Buffer, vk::Buffer>
@@ -58,10 +59,10 @@ class VulkanDescriptorAllocator {
    public:
 	VulkanDescriptorAllocator(VulkanNRI &nri);
 
-	NRIResourceHandle addUniformBufferDescriptor(const VulkanNRIBuffer &buffer);
-	NRIResourceHandle addSamplerImageDescriptor(const VulkanNRITexture2D &image);
-	NRIResourceHandle addAccelerationStructureDescriptor(const VulkanNRITLAS &tlas);
-	NRIResourceHandle addStorageImageDescriptor(const VulkanNRIStorageImage2D &image);
+	ResourceHandle addUniformBufferDescriptor(const VulkanBuffer &buffer);
+	ResourceHandle addSamplerImageDescriptor(const VulkanTexture2D &image);
+	ResourceHandle addAccelerationStructureDescriptor(const VulkanTLAS &tlas);
+	ResourceHandle addStorageImageDescriptor(const VulkanStorageImage2D &image);
 
 	auto	   &getDescriptorSet() { return bigDescriptorSet; }
 	const auto &getDescriptorSet() const { return bigDescriptorSet; }
@@ -70,90 +71,90 @@ class VulkanDescriptorAllocator {
 	const auto &getDescriptorSetLayout() const { return descriptorSetLayout; }
 };
 
-class VulkanNRIAllocation : public NRIAllocation {
+class VulkanAllocation : public Allocation {
 	vk::raii::DeviceMemory memory;
 	vk::Device			   device;
 
    public:
-	VulkanNRIAllocation(std::nullptr_t) : memory(nullptr), device(nullptr) {}
-	VulkanNRIAllocation(VulkanNRI &nri, NRI::MemoryRequirements memoryRequirements);
-	VulkanNRIAllocation(vk::raii::DeviceMemory &&mem, vk::Device dev) : memory(std::move(mem)), device(dev) {}
+	VulkanAllocation(std::nullptr_t) : memory(nullptr), device(nullptr) {}
+	VulkanAllocation(VulkanNRI &nri, MemoryRequirements memoryRequirements);
+	VulkanAllocation(vk::raii::DeviceMemory &&mem, vk::Device dev) : memory(std::move(mem)), device(dev) {}
 
 	vk::DeviceMemory getMemory() { return memory; }
 	vk::Device		 getDevice() { return device; }
 };
 
-class VulkanNRIBuffer : public NRIBuffer {
-	VulkanNRI			*nri;
-	vk::raii::Buffer	 buffer;
-	VulkanNRIAllocation *allocation;
+class VulkanBuffer : public Buffer {
+	VulkanNRI		 *nri;
+	vk::raii::Buffer  buffer;
+	VulkanAllocation *allocation;
 
 	std::size_t offset = 0;
 	std::size_t size   = 0;
 
    public:
-	VulkanNRIBuffer(std::nullptr_t) : nri(nullptr), buffer(nullptr), allocation(nullptr), offset(0), size(0) {}
-	VulkanNRIBuffer(VulkanNRI &nri, std::size_t size, NRI::BufferUsage usage);
+	VulkanBuffer(std::nullptr_t) : nri(nullptr), buffer(nullptr), allocation(nullptr), offset(0), size(0) {}
+	VulkanBuffer(VulkanNRI &nri, std::size_t size, BufferUsage usage);
 
-	NRI::MemoryRequirements getMemoryRequirements() override;
-	void					bindMemory(NRIAllocation &allocation, std::size_t offset) override;
-	void				   *map(std::size_t offset, std::size_t size) override;
-	void					unmap() override;
+	MemoryRequirements getMemoryRequirements() override;
+	void			   bindMemory(Allocation &allocation, std::size_t offset) override;
+	void			  *map(std::size_t offset, std::size_t size) override;
+	void			   unmap() override;
 
 	std::size_t getSize() const override;
 	std::size_t getOffset() const override;
 	const auto &getBuffer() const { return buffer; }
 	auto	   &getBuffer() { return buffer; }
 
-	void copyFrom(NRICommandBuffer &commandBuffer, NRIBuffer &srcBuffer, std::size_t srcOffset, std::size_t dstOffset,
+	void copyFrom(CommandBuffer &commandBuffer, Buffer &srcBuffer, std::size_t srcOffset, std::size_t dstOffset,
 				  std::size_t size) override;
-	void bindAsVertexBuffer(NRICommandBuffer &commandBuffer, uint32_t binding, std::size_t offset,
+	void bindAsVertexBuffer(CommandBuffer &commandBuffer, uint32_t binding, std::size_t offset,
 							std::size_t stride) override;
-	void bindAsIndexBuffer(NRICommandBuffer &commandBuffer, std::size_t offset, NRI::IndexType indexType) override;
+	void bindAsIndexBuffer(CommandBuffer &commandBuffer, std::size_t offset, IndexType indexType) override;
 
 	vk::DeviceAddress getAddress();
 };
 
-class VulkanNRIImageView : public NRIImageView {
+class VulkanImageView : public ImageView {
    protected:
 	VulkanNRI		   *nri;
 	vk::raii::ImageView imageView;
 	vk::Format			format;
 
    public:
-	VulkanNRIImageView(VulkanNRI &nri, vk::raii::ImageView &&imgView, vk::Format fmt);
+	VulkanImageView(VulkanNRI &nri, vk::raii::ImageView &&imgView, vk::Format fmt);
 	auto	   &get() { return imageView; }
 	const auto &get() const { return imageView; }
 	auto	   &getFormat() { return format; }
 	const auto &getFormat() const { return format; }
 };
 
-class VulkanNRIRenderTarget : public VulkanNRIImageView {
+class VulkanRenderTarget : public VulkanImageView {
    public:
-	VulkanNRIRenderTarget(VulkanNRI &nri, VulkanNRIImage2D &image2D);
+	VulkanRenderTarget(VulkanNRI &nri, VulkanImage2D &image2D);
 
-	NRIResourceHandle createHandle() const override;
+	ResourceHandle createHandle() const override;
 };
 
-class VulkanNRITexture2D : public VulkanNRIImageView {
+class VulkanTexture2D : public VulkanImageView {
 	vk::raii::Sampler sampler;
 
    public:
-	VulkanNRITexture2D(VulkanNRI &nri, VulkanNRIImage2D &image2D);
+	VulkanTexture2D(VulkanNRI &nri, VulkanImage2D &image2D);
 
-	NRIResourceHandle createHandle() const override;
+	ResourceHandle createHandle() const override;
 
 	auto	   &getSampler() { return sampler; }
 	const auto &getSampler() const { return sampler; }
 };
 
-class VulkanNRIStorageImage2D : public VulkanNRIImageView {
+class VulkanStorageImage2D : public VulkanImageView {
    public:
-	VulkanNRIStorageImage2D(VulkanNRI &nri, VulkanNRIImage2D &image2D);
-	NRIResourceHandle createHandle() const override;
+	VulkanStorageImage2D(VulkanNRI &nri, VulkanImage2D &image2D);
+	ResourceHandle createHandle() const override;
 };
 
-class VulkanNRIImage2D : public NRIImage2D {
+class VulkanImage2D : public Image2D {
 	VulkanNRI							  *nri;
 	OwnerOrNot<vk::raii::Image, vk::Image> image;
 	vk::raii::Device					  *device;
@@ -167,11 +168,11 @@ class VulkanNRIImage2D : public NRIImage2D {
 	static vk::ImageAspectFlags getAspectFlags(vk::Format format);
 
    public:
-	void transitionLayout(NRICommandBuffer &commandBuffer, vk::ImageLayout newLayout, vk::AccessFlags srcAccess,
+	void transitionLayout(CommandBuffer &commandBuffer, vk::ImageLayout newLayout, vk::AccessFlags srcAccess,
 						  vk::AccessFlags dstAccess, vk::PipelineStageFlags srcStage, vk::PipelineStageFlags dstStage);
 
-	VulkanNRIImage2D(VulkanNRI &nri, vk::Image img, vk::ImageLayout layout, vk::Format fmt, vk::raii::Device &dev,
-					 uint32_t width, uint32_t height)
+	VulkanImage2D(VulkanNRI &nri, vk::Image img, vk::ImageLayout layout, vk::Format fmt, vk::raii::Device &dev,
+				  uint32_t width, uint32_t height)
 		: nri(&nri),
 		  image(img),
 		  device(&dev),
@@ -181,18 +182,18 @@ class VulkanNRIImage2D : public NRIImage2D {
 		  width(width),
 		  height(height) {}
 
-	VulkanNRIImage2D(VulkanNRI &nri, uint32_t width, uint32_t height, NRI::Format format, NRI::ImageUsage usage);
+	VulkanImage2D(VulkanNRI &nri, uint32_t width, uint32_t height, Format format, ImageUsage usage);
 
-	VulkanNRIImage2D(VulkanNRIImage2D &&other)			  = default;
-	VulkanNRIImage2D &operator=(VulkanNRIImage2D &&other) = default;
+	VulkanImage2D(VulkanImage2D &&other)			= default;
+	VulkanImage2D &operator=(VulkanImage2D &&other) = default;
 
-	NRI::MemoryRequirements getMemoryRequirements() override;
-	void					bindMemory(NRIAllocation &allocation, std::size_t offset) override;
+	MemoryRequirements getMemoryRequirements() override;
+	void			   bindMemory(Allocation &allocation, std::size_t offset) override;
 
-	void clear(NRICommandBuffer &commandBuffer, glm::vec4 color) override;
+	void clear(CommandBuffer &commandBuffer, glm::vec4 color) override;
 
-	void prepareForPresent(NRICommandBuffer &commandBuffer) override;
-	void copyFrom(NRICommandBuffer &commandBuffer, NRIBuffer &srcBuffer, std::size_t srcOffset,
+	void prepareForPresent(CommandBuffer &commandBuffer) override;
+	void copyFrom(CommandBuffer &commandBuffer, Buffer &srcBuffer, std::size_t srcOffset,
 				  uint32_t srcRowPitch) override;
 
 	uint32_t getWidth() const override { return width; }
@@ -203,29 +204,29 @@ class VulkanNRIImage2D : public NRIImage2D {
 	auto get() { return image.get(); }
 	auto getFormat() { return format; }
 
-	std::unique_ptr<NRIImageView> createRenderTargetView() override;
-	std::unique_ptr<NRIImageView> createTextureView() override;
-	std::unique_ptr<NRIImageView> createStorageView() override;
+	std::unique_ptr<ImageView> createRenderTargetView() override;
+	std::unique_ptr<ImageView> createTextureView() override;
+	std::unique_ptr<ImageView> createStorageView() override;
 };
 
-class VulkanNRICommandPool : public NRICommandPool {
+class VulkanCommandPool : public CommandPool {
    public:
 	vk::raii::CommandPool commandPool;
 
-	VulkanNRICommandPool(vk::raii::CommandPool &&pool) : commandPool(std::move(pool)) {}
+	VulkanCommandPool(vk::raii::CommandPool &&pool) : commandPool(std::move(pool)) {}
 };
 
-class VulkanNRICommandQueue : public NRICommandQueue {
+class VulkanCommandQueue : public CommandQueue {
    public:
 	vk::raii::Queue queue;
 
-	VulkanNRICommandQueue(vk::raii::Queue &&q) : queue(std::move(q)) {}
+	VulkanCommandQueue(vk::raii::Queue &&q) : queue(std::move(q)) {}
 
-	SubmitKey submit(NRICommandBuffer &commandBuffer) override;
+	SubmitKey submit(CommandBuffer &commandBuffer) override;
 	void	  wait(SubmitKey key) override;
 };
 
-class VulkanNRICommandBuffer : public NRICommandBuffer {
+class VulkanCommandBuffer : public CommandBuffer {
    public:
 	vk::raii::CommandBuffer commandBuffer;
 	bool					isRecording;
@@ -245,93 +246,92 @@ class VulkanNRICommandBuffer : public NRICommandBuffer {
 		}
 	}
 
-	VulkanNRICommandBuffer(vk::raii::CommandBuffer &&cmdBuf) : commandBuffer(std::move(cmdBuf)), isRecording(false) {}
+	VulkanCommandBuffer(vk::raii::CommandBuffer &&cmdBuf) : commandBuffer(std::move(cmdBuf)), isRecording(false) {}
 };
 
-class VulkanNRIProgramBuilder : public NRIProgramBuilder {
+class VulkanProgramBuilder : public ProgramBuilder {
    protected:
 	VulkanNRI &nri;
 
 	std::pair<std::vector<vk::raii::ShaderModule>, std::vector<vk::PipelineShaderStageCreateInfo>> createShaderModules(
-		std::vector<NRI::ShaderCreateInfo> &&stagesInfo, const vk::raii::Device &device);
+		std::vector<ShaderCreateInfo> &&stagesInfo, const vk::raii::Device &device);
 
 	std::vector<vk::PushConstantRange> createPushConstantRanges(
-		const std::vector<NRI::PushConstantRange> &nriPushConstantRanges);
+		const std::vector<PushConstantRange> &nriPushConstantRanges);
 
    public:
-	VulkanNRIProgramBuilder(VulkanNRI &nri) : nri(nri) {}
+	VulkanProgramBuilder(VulkanNRI &nri) : nri(nri) {}
 
-	std::unique_ptr<NRIGraphicsProgram>	  buildGraphicsProgram() override;
-	std::unique_ptr<NRIComputeProgram>	  buildComputeProgram() override;
-	std::unique_ptr<NRIRayTracingProgram> buildRayTracingProgram() override;
+	std::unique_ptr<GraphicsProgram>   buildGraphicsProgram() override;
+	std::unique_ptr<ComputeProgram>	   buildComputeProgram() override;
+	std::unique_ptr<RayTracingProgram> buildRayTracingProgram() override;
 };
 
-class VulkanNRIProgram : virtual NRIProgram {
+class VulkanProgram : virtual Program {
    protected:
 	VulkanNRI				&nri;
 	vk::raii::Pipeline		 pipeline;
 	vk::raii::PipelineLayout pipelineLayout;
 
    public:
-	VulkanNRIProgram(VulkanNRI &nri, vk::raii::Pipeline &&ppln, vk::raii::PipelineLayout &&layout)
+	VulkanProgram(VulkanNRI &nri, vk::raii::Pipeline &&ppln, vk::raii::PipelineLayout &&layout)
 		: nri(nri), pipeline(std::move(ppln)), pipelineLayout(std::move(layout)) {}
 
-	void bind(NRICommandBuffer &commandBuffer) override;
-	void unbind(NRICommandBuffer &commandBuffer) override;
+	void bind(CommandBuffer &commandBuffer) override;
+	void unbind(CommandBuffer &commandBuffer) override;
 
-	void setPushConstants(NRICommandBuffer &commandBuffer, const void *data, std::size_t size,
+	void setPushConstants(CommandBuffer &commandBuffer, const void *data, std::size_t size,
 						  std::size_t offset) override;
 
-	friend class VulkanNRIProgramBuilder;
+	friend class VulkanProgramBuilder;
 };
 
-class VulkanNRIGraphicsProgram : public VulkanNRIProgram, public NRIGraphicsProgram {
+class VulkanGraphicsProgram : public VulkanProgram, public GraphicsProgram {
    public:
-	using VulkanNRIProgram::VulkanNRIProgram;
+	using VulkanProgram::VulkanProgram;
 
-	void draw(NRICommandBuffer &commandBuffer, uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex,
+	void draw(CommandBuffer &commandBuffer, uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex,
 			  uint32_t firstInstance) override;
-	void drawIndexed(NRICommandBuffer &commandBuffer, uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex,
+	void drawIndexed(CommandBuffer &commandBuffer, uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex,
 					 int32_t vertexOffset, uint32_t firstInstance) override;
 };
 
-class VulkanNRIComputeProgram : public VulkanNRIProgram, public NRIComputeProgram {
+class VulkanComputeProgram : public VulkanProgram, public ComputeProgram {
    public:
-	using VulkanNRIProgram::VulkanNRIProgram;
+	using VulkanProgram::VulkanProgram;
 
-	void dispatch(NRICommandBuffer &commandBuffer, uint32_t groupCountX, uint32_t groupCountY,
+	void dispatch(CommandBuffer &commandBuffer, uint32_t groupCountX, uint32_t groupCountY,
 				  uint32_t groupCountZ) override;
 };
 
-class VulkanNRIRayTracingProgram : public VulkanNRIProgram, public NRIRayTracingProgram {
+class VulkanRayTracingProgram : public VulkanProgram, public RayTracingProgram {
    public:
-	using VulkanNRIProgram::VulkanNRIProgram;
+	using VulkanProgram::VulkanProgram;
 
-	void traceRays(NRICommandBuffer &commandBuffer, uint32_t width, uint32_t height, uint32_t depth) override;
+	void traceRays(CommandBuffer &commandBuffer, uint32_t width, uint32_t height, uint32_t depth) override;
 };
 
 class VulkanMemoryCache {
-	VulkanNRIBuffer		buffer;
-	VulkanNRIAllocation allocation;
+	VulkanBuffer	 buffer;
+	VulkanAllocation allocation;
 
 	VulkanMemoryCache() : buffer(nullptr), allocation(nullptr) {}
 
 	void assureSize(VulkanNRI &nri, std::size_t size);
 
    public:
-	VulkanNRIBuffer &getAccelerationStructureScratch(VulkanNRI									&nri,
-													 vk::AccelerationStructureBuildSizesInfoKHR &sizeInfo);
+	VulkanBuffer &getAccelerationStructureScratch(VulkanNRI &nri, vk::AccelerationStructureBuildSizesInfoKHR &sizeInfo);
 
    private:		// this does not work currently
 	static VulkanMemoryCache &getInstance();
 	static void				  destroy();
 };
 
-class VulkanNRIBLAS : public NRIBLAS {
+class VulkanBLAS : public BLAS {
 	VulkanNRI						  *nri;
 	vk::raii::AccelerationStructureKHR accelerationStructure;
-	VulkanNRIBuffer					   asBuffer;
-	VulkanNRIAllocation				   asMemory;
+	VulkanBuffer					   asBuffer;
+	VulkanAllocation				   asMemory;
 	std::size_t						   indexOffset = 0;
 
 	struct TemporaryBuildInfo {
@@ -339,19 +339,19 @@ class VulkanNRIBLAS : public NRIBLAS {
 		vk::AccelerationStructureGeometryKHR		  geometry;
 		vk::AccelerationStructureBuildRangeInfoKHR	  buildRangeInfo;
 		vk::AccelerationStructureBuildGeometryInfoKHR buildGeometryInfo;
-		VulkanNRIBuffer								 *vertexBuffer;
-		VulkanNRIBuffer								 *indexBuffer;
-		VulkanNRIBuffer								  scratchBuffer = nullptr;
-		VulkanNRIAllocation							  scratchMemory = nullptr;
+		VulkanBuffer								 *vertexBuffer;
+		VulkanBuffer								 *indexBuffer;
+		VulkanBuffer								  scratchBuffer = nullptr;
+		VulkanAllocation							  scratchMemory = nullptr;
 	};
 	std::unique_ptr<TemporaryBuildInfo> tempBuildInfo;
 
    public:
-	VulkanNRIBLAS(VulkanNRI &nri, VulkanNRIBuffer &vertexBuffer, NRI::Format vertexFormat, std::size_t vertexOffset,
-				  uint32_t vertexCount, std::size_t vertexStride, VulkanNRIBuffer &indexBuffer,
-				  NRI::IndexType indexType, std::size_t indexOffset);
+	VulkanBLAS(VulkanNRI &nri, VulkanBuffer &vertexBuffer, Format vertexFormat, std::size_t vertexOffset,
+			   uint32_t vertexCount, std::size_t vertexStride, VulkanBuffer &indexBuffer, IndexType indexType,
+			   std::size_t indexOffset);
 
-	void build(NRICommandBuffer &commandBuffer) override;
+	void build(CommandBuffer &commandBuffer) override;
 	void buildFinished() override;
 
 	auto			 &getAccelerationStructure() { return accelerationStructure; }
@@ -359,77 +359,75 @@ class VulkanNRIBLAS : public NRIBLAS {
 	vk::DeviceAddress getAddress() const;
 };
 
-class VulkanNRITLAS : public NRITLAS {
+class VulkanTLAS : public TLAS {
 	VulkanNRI						  *nri;
 	vk::raii::AccelerationStructureKHR as;
-	VulkanNRIBuffer					   asBuffer;
-	VulkanNRIAllocation				   asMemory;
-	mutable NRIResourceHandle		   handle = NRIResourceHandle::INVALID_HANDLE;
+	VulkanBuffer					   asBuffer;
+	VulkanAllocation				   asMemory;
+	mutable ResourceHandle			   handle = ResourceHandle::INVALID_HANDLE;
 
 	struct TemporaryBuildInfo {
 		vk::AccelerationStructureGeometryKHR		  geometry;
 		vk::AccelerationStructureBuildRangeInfoKHR	  buildRangeInfo;
 		vk::AccelerationStructureBuildGeometryInfoKHR buildGeometryInfo;
-		VulkanNRIBuffer								  instanceUploadBuffer = nullptr;
-		VulkanNRIAllocation							  instanceUploadMemory = nullptr;
+		VulkanBuffer								  instanceUploadBuffer = nullptr;
+		VulkanAllocation							  instanceUploadMemory = nullptr;
 
-		VulkanNRIBuffer		instanceBuffer = nullptr;
-		VulkanNRIAllocation instanceMemory = nullptr;
+		VulkanBuffer	 instanceBuffer = nullptr;
+		VulkanAllocation instanceMemory = nullptr;
 
-		VulkanNRIBuffer		scratchBuffer = nullptr;
-		VulkanNRIAllocation scratchMemory = nullptr;
+		VulkanBuffer	 scratchBuffer = nullptr;
+		VulkanAllocation scratchMemory = nullptr;
 	};
 
 	std::unique_ptr<TemporaryBuildInfo> tempBuildInfo;
 
    public:
-	VulkanNRITLAS(VulkanNRI &nri, const std::span<const NRIBLAS *> &blases,
-				  std::optional<std::span<glm::mat4x3>> transforms = std::nullopt);
+	VulkanTLAS(VulkanNRI &nri, const std::span<const BLAS *> &blases,
+			   std::optional<std::span<glm::mat4x3>> transforms = std::nullopt);
 
-	void			  build(NRICommandBuffer &commandBuffer) override;
-	void			  buildFinished() override;
-	NRIResourceHandle getHandle() const override;
+	void		   build(CommandBuffer &commandBuffer) override;
+	void		   buildFinished() override;
+	ResourceHandle getHandle() const override;
 
 	auto	   &getTLAS() { return as; }
 	const auto &getTLAS() const { return as; }
 };
 
-class VulkanNRIQWindow : public NRIQWindow {
+class VulkanQWindow : public QWindow {
 	vk::raii::SurfaceKHR   surface;
 	vk::raii::SwapchainKHR swapChain;
-	VulkanNRICommandQueue  presentQueue;
+	VulkanCommandQueue	   presentQueue;
 
 	vk::raii::Semaphore imageAvailableSemaphore;
 	vk::raii::Semaphore renderFinishedSemaphore;
 	vk::raii::Fence		inFlightFence;
 
-	std::vector<NRIImageAndView<VulkanNRIImage2D, VulkanNRIRenderTarget>> swapChainImages;
-	std::optional<VulkanNRIRenderTarget>								  depthImageView;
-	std::optional<VulkanNRIImage2D>										  depthImage;
-	std::optional<VulkanNRIAllocation>									  depthImageAllocation;
+	std::vector<ImageAndView<VulkanImage2D, VulkanRenderTarget>> swapChainImages;
+	std::optional<VulkanRenderTarget>							 depthImageView;
+	std::optional<VulkanImage2D>								 depthImage;
+	std::optional<VulkanAllocation>								 depthImageAllocation;
 
-	std::unique_ptr<VulkanNRICommandBuffer> commandBuffer;
+	std::unique_ptr<VulkanCommandBuffer> commandBuffer;
 
 	uint32_t width = 0, height = 0;
 
    protected:
    public:
-	VulkanNRIQWindow(VulkanNRI &nri, std::unique_ptr<Renderer> &&renderer);
+	VulkanQWindow(VulkanNRI &nri, std::unique_ptr<Renderer> &&renderer);
 
 	void createSwapChain(uint32_t &width, uint32_t &height);
 	void drawFrame() override;
 
-	void beginRendering(NRICommandBuffer &cmdBuf, const NRIImageAndViewRef &renderTarget) override;
-	void endRendering(NRICommandBuffer &cmdBuf) override;
+	void beginRendering(CommandBuffer &cmdBuf, const ImageAndViewRef &renderTarget) override;
+	void endRendering(CommandBuffer &cmdBuf) override;
 
-	vk::raii::SurfaceKHR   &getSurface() { return surface; }
-	vk::raii::SwapchainKHR &getSwapChain() { return swapChain; }
-	vk::raii::Queue		   &getPresentQueue() { return presentQueue.queue; }
-	std::vector<NRIImageAndView<VulkanNRIImage2D, VulkanNRIRenderTarget>> &getSwapChainImages() {
-		return swapChainImages;
-	}
+	vk::raii::SurfaceKHR										 &getSurface() { return surface; }
+	vk::raii::SwapchainKHR										 &getSwapChain() { return swapChain; }
+	vk::raii::Queue												 &getPresentQueue() { return presentQueue.queue; }
+	std::vector<ImageAndView<VulkanImage2D, VulkanRenderTarget>> &getSwapChainImages() { return swapChainImages; }
 
-	NRICommandQueue &getMainQueue() override { return presentQueue; }
+	CommandQueue &getMainQueue() override { return presentQueue; }
 };
 
 class VulkanNRI : public NRI {
@@ -437,7 +435,7 @@ class VulkanNRI : public NRI {
 	vk::raii::PhysicalDevice physicalDevice;
 	vk::raii::Device		 device;
 
-	VulkanNRICommandPool					 defaultCommandPool;
+	VulkanCommandPool						 defaultCommandPool;
 	std::optional<VulkanDescriptorAllocator> descriptorAllocator;
 
 	void createInstance();
@@ -448,21 +446,20 @@ class VulkanNRI : public NRI {
 	VulkanNRI();
 	~VulkanNRI();
 
-	std::unique_ptr<NRIBuffer>		   createBuffer(std::size_t size, BufferUsage usage) override;
-	std::unique_ptr<NRIImage2D>		   createImage2D(uint32_t width, uint32_t height, NRI::Format fmt,
-													 NRI::ImageUsage usage) override;
-	std::unique_ptr<NRIAllocation>	   allocateMemory(MemoryRequirements memoryRequirements) override;
-	std::unique_ptr<NRICommandQueue>   createCommandQueue() override;
-	std::unique_ptr<NRICommandBuffer>  createCommandBuffer(const NRICommandPool &commandPool) override;
-	std::unique_ptr<NRICommandPool>	   createCommandPool() override;
-	std::unique_ptr<NRIProgramBuilder> createProgramBuilder() override;
-	NRIQWindow				*createQWidgetSurface(QApplication &app, std::unique_ptr<Renderer> &&renderer) override;
-	std::unique_ptr<NRIBLAS> createBLAS(NRIBuffer &vertexBuffer, NRI::Format vertexFormat, std::size_t vertexOffset,
-										uint32_t vertexCount, std::size_t vertexStride, NRIBuffer &indexBuffer,
-										NRI::IndexType indexType, std::size_t indexOffset) override;
+	std::unique_ptr<Buffer>		  createBuffer(std::size_t size, BufferUsage usage) override;
+	std::unique_ptr<Image2D>	  createImage2D(uint32_t width, uint32_t height, Format fmt, ImageUsage usage) override;
+	std::unique_ptr<Allocation>	  allocateMemory(MemoryRequirements memoryRequirements) override;
+	std::unique_ptr<CommandQueue> createCommandQueue() override;
+	std::unique_ptr<CommandBuffer>	createCommandBuffer(const CommandPool &commandPool) override;
+	std::unique_ptr<CommandPool>	createCommandPool() override;
+	std::unique_ptr<ProgramBuilder> createProgramBuilder() override;
+	QWindow				 *createQWidgetSurface(QApplication &app, std::unique_ptr<Renderer> &&renderer) override;
+	std::unique_ptr<BLAS> createBLAS(Buffer &vertexBuffer, Format vertexFormat, std::size_t vertexOffset,
+									 uint32_t vertexCount, std::size_t vertexStride, Buffer &indexBuffer,
+									 IndexType indexType, std::size_t indexOffset) override;
 
-	std::unique_ptr<NRITLAS> createTLAS(const std::span<const NRIBLAS *>	 &blases,
-										std::optional<std::span<glm::mat4x3>> transforms = std::nullopt) override;
+	std::unique_ptr<TLAS> createTLAS(const std::span<const BLAS *>		  &blases,
+									 std::optional<std::span<glm::mat4x3>> transforms = std::nullopt) override;
 
 	struct QueueFamilyIndices {
 		std::optional<uint32_t> graphicsFamily;
@@ -472,7 +469,7 @@ class VulkanNRI : public NRI {
 	const vk::raii::Device		   &getDevice() const { return device; }
 	vk::raii::Device			   &getDevice() { return device; }
 	const vk::raii::PhysicalDevice &getPhysicalDevice() const { return physicalDevice; }
-	NRICommandPool				   &getDefaultCommandPool() override { return defaultCommandPool; }
+	CommandPool					   &getDefaultCommandPool() override { return defaultCommandPool; }
 	VulkanDescriptorAllocator	   &getDescriptorAllocator() {
 		 assert(descriptorAllocator.has_value());
 		 return descriptorAllocator.value();
@@ -486,3 +483,4 @@ class VulkanNRI : public NRI {
    private:
 	QueueFamilyIndices queueFamilyIndices;
 };
+}	  // namespace nri

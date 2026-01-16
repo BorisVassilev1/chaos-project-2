@@ -7,101 +7,45 @@
 #include "scene.hpp"
 
 #include "../engine/image_utils.hpp"
+#include "../engine/transformation.hpp"
 
-class BeamcastRenderer : public Renderer {
+namespace beamcast {
+
+class BeamcastRenderer : public nri::Renderer {
    public:
-	int									frameCount = 0;
-	std::unique_ptr<NRIGraphicsProgram> shader;
-	Camera								camera;
-	IsKeyPressed						isKeyPressed;
-	std::unique_ptr<Mesh>				mesh;
+	int									  frameCount = 0;
+	std::unique_ptr<nri::GraphicsProgram> shader;
+	Camera								  camera;
+	IsKeyPressed						  isKeyPressed;
+	std::unique_ptr<Mesh>				  mesh;
 
-	std::unique_ptr<NRIImage2D>	   texture;
-	std::unique_ptr<NRIAllocation> textureMemory;
-	NRIResourceHandle			   textureHandle;
-	std::unique_ptr<NRIImageView>  textureView;
+	std::unique_ptr<nri::Image2D>	 texture;
+	std::unique_ptr<nri::Allocation> textureMemory;
+	nri::ResourceHandle				 textureHandle;
+	std::unique_ptr<nri::ImageView>	 textureView;
 
 	std::unique_ptr<Scene> scene;
 
-	std::unique_ptr<NRIRayTracingProgram> rayTracingShader;
+	std::unique_ptr<nri::RayTracingProgram> rayTracingShader;
+	std::unique_ptr<nri::Image2D>			rayTracingOutputImage;
+	std::unique_ptr<nri::Allocation>		rayTracingOutputImageMemory;
+	std::unique_ptr<nri::ImageView>			rayTracingOutputImageView;
+	nri::ResourceHandle						rayTracingOutputImageHandle;
 
-	BeamcastRenderer(NRI &nri, QApplication &app)
-		: Renderer(nri), camera(app, 800, 600, nri.shouldFlipY()), isKeyPressed(app) {}
+	BeamcastRenderer(nri::NRI &nri, QApplication &app);
 
-	NRIQWindow *window;
+	nri::QWindow *window;
 
-	void initialize(NRIQWindow &window) override {
-		this->window = &window;
+	void initialize(nri::QWindow &window) override;
 
-		mesh = std::make_unique<TriangleMesh>(nri, window.getMainQueue());
+	void resizeEvent(QResizeEvent *event) override;
 
-		scene = std::make_unique<Scene>(nri, window.getMainQueue(), PROJECT_ROOT_DIR "/export.json");
-		if (nri.supportsRayTracing()) NRIResourceHandle sceneTextureHandle = scene->getTLAS().getHandle();
+	void keyEvent(QKeyEvent *event);
 
-		if (nri.supportsTextures()) {
-			std::tie(texture, textureMemory) =
-				createImage2D(PROJECT_ROOT_DIR "textures/bricks/albedo.jpg", nri, window.getMainQueue());
-			textureView	  = texture->createTextureView();
-			textureHandle = textureView->getHandle();
-		}
+	void mouseEvent(QMouseEvent *event);
 
-		auto shaderBuilder = nri.createProgramBuilder();
-		shader			   = shaderBuilder->setVertexBindings(mesh->getVertexBindings())
-					 .addShaderModule(
-						 {PROJECT_ROOT_DIR "shaders/simple.hlsl", "VSMain", NRI::ShaderType::SHADER_TYPE_VERTEX})
-					 .addShaderModule(
-						 {PROJECT_ROOT_DIR "shaders/simple.hlsl", "PSMain", NRI::ShaderType::SHADER_TYPE_FRAGMENT})
-					 .setPrimitiveType(NRI::PrimitiveType::PRIMITIVE_TYPE_TRIANGLES)
-					 .setPushConstantRanges({Scene::getPushConstantRange()})
-					 .buildGraphicsProgram();
+	glm::mat4 calcMatrix(const Camera &camera);
 
-		shaderBuilder = nri.createProgramBuilder();
-		/*rayTracingShader = shaderBuilder
-							   ->addShaderModule({PROJECT_ROOT_DIR "shaders/raygen.hlsl", "RayGenMain",
-												  NRI::ShaderType::SHADER_TYPE_RAYGEN})
-							   .buildRayTracingProgram();*/
-
-		dbLog(dbg::LOG_INFO, "Renderer initialized.");
-
-		window.addResizeCallback([this](QResizeEvent *event) { this->resizeEvent(event); });
-		window.addKeyCallback([this](QKeyEvent *event) { this->keyEvent(event); });
-		window.addMouseCallback([this](QMouseEvent *event) { this->mouseEvent(event); });
-	}
-
-	void resizeEvent(QResizeEvent *event) override {
-		camera.setAspectRatio(static_cast<float>(event->size().width()) / static_cast<float>(event->size().height()));
-	}
-
-	void keyEvent(QKeyEvent *event) {
-		isKeyPressed.keyEvent(event);
-		if (event->key() == Qt::Key_Escape && event->type() == QEvent::KeyPress) window->close();
-		if (event->key() == Qt::Key_1 && event->type() == QEvent::KeyPress) camera.toggleControls();
-	}
-
-	void mouseEvent(QMouseEvent *event) { camera.handleMouseEvent(event); }
-
-	void render(const NRIImageAndViewRef &currentImage, NRICommandBuffer &cmdBuf) override {
-		camera.update(isKeyPressed, window->deltaTime());
-		++frameCount;
-
-		cmdBuf.begin();
-
-		shader->bind(cmdBuf);
-		window->beginRendering(cmdBuf, currentImage);
-		// currentImage.clear(cmdBuf, glm::vec4(0.0f, glm::sin(frameCount / 50.f) * 0.5f + 0.5f, 0.0f, 1.0f));
-		// currentImage.prepareForPresent(cmdBuf);
-
-		mesh->bind(cmdBuf);
-
-		camera.setPushConstants(*shader, cmdBuf);
-		shader->drawIndexed(cmdBuf, 3, 1, 0, 0, 0);
-
-		scene->render(cmdBuf, *shader, camera);
-
-		window->endRendering(cmdBuf);
-
-		currentImage.image.prepareForPresent(cmdBuf);
-
-		cmdBuf.end();
-	}
+	void render(const nri::ImageAndViewRef &currentImage, nri::CommandBuffer &cmdBuf) override;
 };
+}	  // namespace beamcast

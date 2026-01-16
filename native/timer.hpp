@@ -3,6 +3,7 @@
 #include <iostream>
 #include <thread>
 
+namespace nri {
 class Timer {
 	std::chrono::milliseconds	interval;
 	std::function<void()>		f;
@@ -23,14 +24,11 @@ class Timer {
 		});
 	}
 
-	void stop() {
-		thread = std::nullopt;
-	}
+	void stop() { thread = std::nullopt; }
 
 	Timer(Timer &&)			   = default;
 	Timer &operator=(Timer &&) = default;
 
-	~Timer() {
-		running = 0;
-	}
+	~Timer() { running = 0; }
 };
+}	  // namespace nri

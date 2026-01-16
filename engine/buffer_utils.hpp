@@ -4,8 +4,10 @@
 #include <vector>
 #include "../native/nri.hpp"
 
-std::tuple<std::vector<std::size_t>, NRI::MemoryRequirements> getBufferOffsets(const std::vector<NRIBuffer *> &buffers);
+namespace beamcast {
+std::tuple<std::vector<std::size_t>, nri::MemoryRequirements> getBufferOffsets(
+	const std::vector<nri::Buffer *> &buffers);
 
-
-std::unique_ptr<NRIAllocation> allocateBindMemory(NRI &nri, const std::vector<NRIBuffer *> &buffers,
-												  NRI::MemoryTypeRequest memoryTypeRequest);
+std::unique_ptr<nri::Allocation> allocateBindMemory(nri::NRI &nri, const std::vector<nri::Buffer *> &buffers,
+													nri::MemoryTypeRequest memoryTypeRequest);
+}	  // namespace beamcast

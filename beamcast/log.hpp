@@ -7,6 +7,7 @@
 #include <chrono>
 #include "utils.hpp"
 
+namespace beamcast {
 /// simple progress logger class
 class PercentLogger {
 	std::string			name;
@@ -53,3 +54,4 @@ class Timer {
 
 	inline void reset() { start = std::chrono::high_resolution_clock::now(); }
 };
+}	  // namespace beamcast

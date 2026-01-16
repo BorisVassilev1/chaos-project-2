@@ -16,6 +16,7 @@
 
 #include <ranges>
 #include <algorithm>
+namespace beamcast {
 template <auto N>
 struct string_literal {
 	constexpr string_literal(const char (&str)[N]) { std::ranges::copy_n(str, N, value); }
@@ -33,6 +34,10 @@ struct string_hash {
 };
 
 std::string getString(std::istream &os);
+
+}	  // namespace beamcast
+
+namespace dbg {
 
 #if defined(__GNUC__) || defined(__clang__)
 	#include <cxxabi.h>
@@ -78,22 +83,6 @@ inline auto type_name(T *v) {
 }
 #endif
 
-/**
- * @brief SpinLock, copy pasta from lectures
- */
-struct SpinLock {
-	std::atomic_flag flag;
-	void			 lock() {
-		while (flag.test_and_set())
-			;
-	}
-
-	void unlock() { flag.clear(); }
-
-	bool tryLock() { return !flag.test_and_set(); }
-};
-
-namespace dbg {
 /**
  *
  * @brief Log levels

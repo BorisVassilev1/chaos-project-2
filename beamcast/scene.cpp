@@ -11,6 +11,7 @@
 #include "utils.hpp"
 #include "materials.hpp"
 
+namespace beamcast {
 MeshObject::MeshObject(uint32_t meshIndex, const rapidjson::Value &obj) : meshIndex(meshIndex) {
 	transform = glm::identity<glm::mat4>();
 
@@ -38,7 +39,7 @@ MeshObject::MeshObject(uint32_t meshIndex, const rapidjson::Value &obj) : meshIn
 	}
 }
 
-Scene::Scene(NRI &nri, NRICommandQueue &q, const std::string_view &filename) : nri(&nri) {
+Scene::Scene(nri::NRI &nri, nri::CommandQueue &q, const std::string_view &filename) : nri(&nri) {
 	rapidjson::Document doc;
 	scenePath = filename;
 	std::ifstream file(filename.data());
@@ -80,8 +81,8 @@ Scene::Scene(NRI &nri, NRICommandQueue &q, const std::string_view &filename) : n
 	}
 
 	if (nri.supportsRayTracing()) {
-		std::vector<const NRIBLAS *> blasList;
-		std::vector<glm::mat4x3>	 transforms;
+		std::vector<const nri::BLAS *> blasList;
+		std::vector<glm::mat4x3>	   transforms;
 		for (const auto &obj : meshObjects) {
 			assert(obj.meshIndex < meshes.size());
 			blasList.push_back(&(meshes[obj.meshIndex].getBLAS()));
@@ -161,7 +162,7 @@ Scene::Scene(NRI &nri, NRICommandQueue &q, const std::string_view &filename) : n
 	}
 }
 
-void Scene::render(NRICommandBuffer &commandBuffer, NRIGraphicsProgram &program, const Camera &camera) {
+void Scene::render(nri::CommandBuffer &commandBuffer, nri::GraphicsProgram &program, const Camera &camera) {
 	for (auto &obj : meshObjects) {
 		auto &mesh	   = meshes[obj.meshIndex];
 		auto &material = materials[obj.materialIndex];
@@ -170,7 +171,7 @@ void Scene::render(NRICommandBuffer &commandBuffer, NRIGraphicsProgram &program,
 		glm::mat4 modelViewProjection = camera.getViewProjectionMatrix() * obj.transform;
 		program.setPushConstants(commandBuffer, &modelViewProjection, sizeof(modelViewProjection), 0);
 
-		NRIResourceHandle textureHandle = NRIResourceHandle::INVALID_HANDLE;
+		nri::ResourceHandle textureHandle = nri::ResourceHandle::INVALID_HANDLE;
 		if (nri->supportsTextures()) textureHandle = material->getTextureHandle();
 		program.setPushConstants(commandBuffer, &textureHandle, sizeof(PushConstantData), sizeof(modelViewProjection));
 
@@ -178,7 +179,20 @@ void Scene::render(NRICommandBuffer &commandBuffer, NRIGraphicsProgram &program,
 	}
 }
 
-NRIImageView *Scene::getTexture(const std::string_view &name) const {
+void Scene::drawMesh(nri::CommandBuffer &commandBuffer, nri::GraphicsProgram &program, const Camera &camera,
+					 const Mesh &mesh, const glm::mat4 &modelMatrix, nri::ResourceHandle textureHandle) const {
+	mesh.bind(commandBuffer);
+
+	glm::mat4 modelViewProjection = camera.getViewProjectionMatrix() * modelMatrix;
+	program.setPushConstants(commandBuffer, &modelViewProjection, sizeof(modelViewProjection), 0);
+
+	if (!nri->supportsTextures()) textureHandle = nri::ResourceHandle::INVALID_HANDLE;
+	program.setPushConstants(commandBuffer, &textureHandle, sizeof(PushConstantData), sizeof(modelViewProjection));
+
+	mesh.draw(commandBuffer, program);
+}
+
+nri::ImageView *Scene::getTexture(const std::string_view &name) const {
 	auto it = textureMap.find(name);
 	if (it != textureMap.end()) {
 		return it->second;
@@ -187,9 +201,10 @@ NRIImageView *Scene::getTexture(const std::string_view &name) const {
 	}
 }
 
-NRI::PushConstantRange Scene::getPushConstantRange() {
+nri::PushConstantRange Scene::getPushConstantRange() {
 	auto cameraRange = Camera::getPushConstantRange();
 	return {cameraRange.offset, uint32_t(cameraRange.size + sizeof(PushConstantData))};
 }
 
-NRITLAS &Scene::getTLAS() { return *tlas; }
+nri::TLAS &Scene::getTLAS() { return *tlas; }
+}	  // namespace beamcast

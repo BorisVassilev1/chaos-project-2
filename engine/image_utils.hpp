@@ -2,6 +2,9 @@
 
 #include "../native/nri.hpp"
 
-std::pair<std::unique_ptr<NRIImage2D>, std::unique_ptr<NRIAllocation>> createImage2D(std::string_view fileName,
-																					 NRI &nri, NRICommandQueue &queue,
-																					 NRI::ImageUsage usage = NRI::ImageUsage::IMAGE_USAGE_SAMPLED);
+namespace beamcast {
+
+std::pair<std::unique_ptr<nri::Image2D>, std::unique_ptr<nri::Allocation>> createImage2D(
+	std::string_view fileName, nri::NRI &nri, nri::CommandQueue &queue,
+	nri::ImageUsage usage = nri::ImageUsage::IMAGE_USAGE_SAMPLED);
+}	  // namespace beamcast

@@ -1,5 +1,6 @@
 #include "iskeypressed.hpp"
 
+namespace beamcast {
 bool IsKeyPressed::isKeyPressed(int keyCode) const {
 	// if (keyCode < 0 || keyCode >= 256) { return false; }
 	switch (keyCode) {
@@ -28,3 +29,4 @@ bool IsKeyPressed::keyEvent(QKeyEvent *event) {
 	}
 	return false;
 }
+}	  // namespace beamcast

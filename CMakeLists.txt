@@ -48,11 +48,11 @@ target_include_directories(${PROJECT_NAME} PRIVATE lib/glm)
 target_include_directories(${PROJECT_NAME} PRIVATE lib/sdp_2023)
 
 target_compile_options(${PROJECT_NAME} PUBLIC 
-	#-fsanitize=address
+	-fsanitize=address
 	#-g
 )
 target_link_options(${PROJECT_NAME} PUBLIC 
-	#-fsanitize=address
+	-fsanitize=address
 )
 set_source_files_properties(native/dx12_nri.cpp PROPERTIES
     INCLUDE_DIRECTORIES "${DirectX_INCLUDE_DIR}"

@@ -6,9 +6,8 @@ std::mutex &dbg::getMutex() {
 	return m;
 }
 
-std::string getString(std::istream &os) {
+std::string beamcast::getString(std::istream &os) {
 	std::stringstream str;
 	str << os.rdbuf();
 	return str.str();
 }
-

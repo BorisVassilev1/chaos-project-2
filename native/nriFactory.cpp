@@ -1,15 +1,14 @@
 #include "nriFactory.hpp"
 
-NRIFactory &NRIFactory::getInstance() {
-	static NRIFactory instance;
+namespace nri {
+Factory &Factory::getInstance() {
+	static Factory instance;
 	return instance;
 }
 
-void NRIFactory::registerNRI(const char *name, NRICreateFunction createFunction) {
-	nriInfos.emplace(name, createFunction);
-}
+void Factory::registerNRI(const char *name, CreateFunction createFunction) { nriInfos.emplace(name, createFunction); }
 
-std::unique_ptr<NRI> NRIFactory::createNRI(const std::string &name) const {
+std::unique_ptr<NRI> Factory::createNRI(const std::string &name) const {
 	auto it = nriInfos.find(name);
 	if (it != nriInfos.end()) {
 		return it->second();
@@ -17,7 +16,7 @@ std::unique_ptr<NRI> NRIFactory::createNRI(const std::string &name) const {
 	return nullptr;
 }
 
-std::vector<std::string> NRIFactory::getAvailableNRIs() const {
+std::vector<std::string> Factory::getAvailableNRIs() const {
 	std::vector<std::string> names;
 	for (const auto &pair : nriInfos) {
 		names.push_back(pair.first);
@@ -25,7 +24,7 @@ std::vector<std::string> NRIFactory::getAvailableNRIs() const {
 	return names;
 }
 
-std::string NRIFactory::selectNRIGUI() const {
+std::string Factory::selectNRIGUI() const {
 	std::vector<std::string> availableNRIs = getAvailableNRIs();
 	QDialog					 dialog{};
 	dialog.setWindowTitle("Select an Option");
@@ -51,3 +50,4 @@ std::string NRIFactory::selectNRIGUI() const {
 
 	return selectedString;
 }
+}	  // namespace nri

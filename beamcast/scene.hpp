@@ -7,6 +7,7 @@
 #include "mesh.hpp"
 #include "utils.hpp"
 
+namespace beamcast {
 class MeshObject {
    public:
 	uint32_t  meshIndex;
@@ -17,32 +18,36 @@ class MeshObject {
 };
 
 class Scene {
-	NRI									  *nri = nullptr;
+	nri::NRI							  *nri = nullptr;
 	std::vector<Mesh>					   meshes;
 	std::vector<MeshObject>				   meshObjects;
 	std::vector<std::unique_ptr<Material>> materials;
 
-	std::vector<NRIImageAndViewPtr>												  textures;
-	std::unordered_map<std::string, NRIImageView *, string_hash, std::equal_to<>> textureMap;
+	std::vector<nri::ImageAndViewPtr>												textures;
+	std::unordered_map<std::string, nri::ImageView *, string_hash, std::equal_to<>> textureMap;
 
 	std::filesystem::path scenePath;
 
-	std::vector<std::unique_ptr<NRIAllocation>> memoryAllocations;
+	std::vector<std::unique_ptr<nri::Allocation>> memoryAllocations;
 
-	std::unique_ptr<NRITLAS> tlas;
+	std::unique_ptr<nri::TLAS> tlas;
 
    public:
 	Scene() = default;
-	Scene(NRI &nri, NRICommandQueue &q, const std::string_view &filename);
+	Scene(nri::NRI &nri, nri::CommandQueue &q, const std::string_view &filename);
 
-	void render(NRICommandBuffer &commandBuffer, NRIGraphicsProgram &program, const Camera &camera);
+	void render(nri::CommandBuffer &commandBuffer, nri::GraphicsProgram &program, const Camera &camera);
+	void drawMesh(nri::CommandBuffer &commandBuffer, nri::GraphicsProgram &program, const Camera &camera,
+				  const Mesh &meshIndex, const glm::mat4 &modelMatrix,
+				  nri::ResourceHandle textureHandle = nri::ResourceHandle::INVALID_HANDLE) const;
 
-	NRIImageView *getTexture(const std::string_view &name) const;
+	nri::ImageView *getTexture(const std::string_view &name) const;
 
 	struct PushConstantData {
-		NRIResourceHandle textureHandle;
+		nri::ResourceHandle textureHandle;
 	};
 
-	static NRI::PushConstantRange getPushConstantRange();
-	NRITLAS						 &getTLAS();
+	static nri::PushConstantRange getPushConstantRange();
+	nri::TLAS					 &getTLAS();
 };
+}	  // namespace beamcast

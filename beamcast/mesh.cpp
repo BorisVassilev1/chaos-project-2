@@ -2,12 +2,13 @@
 #include "../engine/buffer_utils.hpp"
 #include "../beamcast/utils.hpp"
 
-Mesh::Mesh(NRI &nri, NRICommandQueue &q, std::span<float> vertices, std::span<float> colors, std::span<float> normals,
-		   std::span<float> texCoords, std::span<uint32_t> indices) {
+namespace beamcast {
+Mesh::Mesh(nri::NRI &nri, nri::CommandQueue &q, std::span<float> vertices, std::span<float> colors,
+		   std::span<float> normals, std::span<float> texCoords, std::span<uint32_t> indices) {
 	init(nri, q, vertices, colors, normals, texCoords, indices);
 }
 
-void Mesh::init(NRI &nri, NRICommandQueue &q, std::span<float> vertices, std::span<float> colors,
+void Mesh::init(nri::NRI &nri, nri::CommandQueue &q, std::span<float> vertices, std::span<float> colors,
 				std::span<float> normals, std::span<float> texCoords, std::span<uint32_t> indices) {
 	if (vertices.size() % 3 != 0) {
 		dbLog(dbg::LOG_ERROR, "Vertices size: ", vertices.size(), " must be a multiple of 3");
@@ -40,16 +41,16 @@ void Mesh::init(NRI &nri, NRICommandQueue &q, std::span<float> vertices, std::sp
 	indexCount	= indices.size();
 
 	vertexAttributes = nri.createBuffer(vertexCount * (3 + 3 + 3 + 2) * sizeof(float),
-										NRI::BUFFER_USAGE_VERTEX | NRI::BUFFER_USAGE_TRANSFER_DST);
+										nri::BUFFER_USAGE_VERTEX | nri::BUFFER_USAGE_TRANSFER_DST);
 	indexBuffer =
-		nri.createBuffer(indices.size() * sizeof(uint32_t), NRI::BUFFER_USAGE_INDEX | NRI::BUFFER_USAGE_TRANSFER_DST);
+		nri.createBuffer(indices.size() * sizeof(uint32_t), nri::BUFFER_USAGE_INDEX | nri::BUFFER_USAGE_TRANSFER_DST);
 
 	auto [offsets, memReq] = getBufferOffsets({vertexAttributes.get(), indexBuffer.get()});
 	memory				   = allocateBindMemory(nri, {vertexAttributes.get(), indexBuffer.get()},
-												NRI::MemoryTypeRequest::MEMORY_TYPE_DEVICE);
+												nri::MemoryTypeRequest::MEMORY_TYPE_DEVICE);
 
-	auto uploadBuffer		= nri.createBuffer(memReq.size, NRI::BUFFER_USAGE_TRANSFER_SRC);
-	auto uploadBufferMemory = allocateBindMemory(nri, {uploadBuffer.get()}, NRI::MemoryTypeRequest::MEMORY_TYPE_UPLOAD);
+	auto uploadBuffer		= nri.createBuffer(memReq.size, nri::BUFFER_USAGE_TRANSFER_SRC);
+	auto uploadBufferMemory = allocateBindMemory(nri, {uploadBuffer.get()}, nri::MemoryTypeRequest::MEMORY_TYPE_UPLOAD);
 
 	{
 		void	*data		   = uploadBuffer->map(0, uploadBuffer->getSize());
@@ -73,8 +74,8 @@ void Mesh::init(NRI &nri, NRICommandQueue &q, std::span<float> vertices, std::sp
 
 	if (nriRayTracingSupported)
 		bottomLevelAS =
-			nri.createBLAS(*vertexAttributes, NRI::Format::FORMAT_R32G32B32_SFLOAT, 0, vertexCount,
-						   (3 + 3 + 3 + 2) * sizeof(float), *indexBuffer, NRI::IndexType::INDEX_TYPE_UINT32, 0);
+			nri.createBLAS(*vertexAttributes, nri::Format::FORMAT_R32G32B32_SFLOAT, 0, vertexCount,
+						   (3 + 3 + 3 + 2) * sizeof(float), *indexBuffer, nri::IndexType::INDEX_TYPE_UINT32, 0);
 
 	auto cmdBuffer = nri.createCommandBuffer(nri.getDefaultCommandPool());
 	vertexAttributes->copyFrom(*cmdBuffer, *uploadBuffer, vertexAttributes->getOffset(), 0,
@@ -93,7 +94,7 @@ void Mesh::init(NRI &nri, NRICommandQueue &q, std::span<float> vertices, std::sp
 	if (nriRayTracingSupported) bottomLevelAS->buildFinished();
 }
 
-Mesh::Mesh(NRI &nri, NRICommandQueue &q, const rapidjson::Value &obj) {
+Mesh::Mesh(nri::NRI &nri, nri::CommandQueue &q, const rapidjson::Value &obj) {
 	auto &verticesJSON = obj["vertices"];
 	assert(verticesJSON.IsArray());
 
@@ -173,34 +174,34 @@ Mesh::Mesh(NRI &nri, NRICommandQueue &q, const rapidjson::Value &obj) {
 	init(nri, q, vertices, colors, normals, texCoords, indices);
 }
 
-void Mesh::bind(NRICommandBuffer &cmdBuffer) {
+void Mesh::bind(nri::CommandBuffer &cmdBuffer) const {
 	vertexAttributes->bindAsVertexBuffer(cmdBuffer, 0, 0, (3 + 3 + 3 + 2) * sizeof(float));
-	indexBuffer->bindAsIndexBuffer(cmdBuffer, 0, NRI::IndexType::INDEX_TYPE_UINT32);
+	indexBuffer->bindAsIndexBuffer(cmdBuffer, 0, nri::IndexType::INDEX_TYPE_UINT32);
 }
 
-void Mesh::draw(NRICommandBuffer &cmdBuffer, NRIGraphicsProgram &program) {
+void Mesh::draw(nri::CommandBuffer &cmdBuffer, nri::GraphicsProgram &program) const {
 	program.drawIndexed(cmdBuffer, indexCount, 1, 0, 0, 0);
 }
 
-std::vector<NRI::VertexBinding> Mesh::getVertexBindings() const {
+std::vector<nri::VertexBinding> Mesh::getVertexBindings() const {
 	return {
 		{0,
 		 (3 + 3 + 3 + 2) * sizeof(float),
-		 NRI::VertexInputRate::VERTEX_INPUT_RATE_VERTEX,
+		 nri::VertexInputRate::VERTEX_INPUT_RATE_VERTEX,
 		 {
-			 {0, NRI::Format::FORMAT_R32G32B32_SFLOAT, 0, NRI::VertexInputRate::VERTEX_INPUT_RATE_VERTEX, "POSITION"},
-			 {1, NRI::Format::FORMAT_R32G32B32_SFLOAT, 12, NRI::VertexInputRate::VERTEX_INPUT_RATE_VERTEX, "COLOR"},
-			 {2, NRI::Format::FORMAT_R32G32B32_SFLOAT, 24, NRI::VertexInputRate::VERTEX_INPUT_RATE_VERTEX, "NORMAL"},
-			 {3, NRI::Format::FORMAT_R32G32_SFLOAT, 36, NRI::VertexInputRate::VERTEX_INPUT_RATE_VERTEX, "TEXCOORD0_"},
+			 {0, nri::Format::FORMAT_R32G32B32_SFLOAT, 0, nri::VertexInputRate::VERTEX_INPUT_RATE_VERTEX, "POSITION"},
+			 {1, nri::Format::FORMAT_R32G32B32_SFLOAT, 12, nri::VertexInputRate::VERTEX_INPUT_RATE_VERTEX, "COLOR"},
+			 {2, nri::Format::FORMAT_R32G32B32_SFLOAT, 24, nri::VertexInputRate::VERTEX_INPUT_RATE_VERTEX, "NORMAL"},
+			 {3, nri::Format::FORMAT_R32G32_SFLOAT, 36, nri::VertexInputRate::VERTEX_INPUT_RATE_VERTEX, "TEXCOORD0_"},
 		 }}};
 }
 
-const NRIBLAS &Mesh::getBLAS() const {
+const nri::BLAS &Mesh::getBLAS() const {
 	if (!bottomLevelAS) { dbLog(dbg::LOG_ERROR, "Bottom level AS not created for this mesh!"); }
 	return *bottomLevelAS;
 }
 
-TriangleMesh::TriangleMesh(NRI &nri, NRICommandQueue &q) : Mesh() {
+TriangleMesh::TriangleMesh(nri::NRI &nri, nri::CommandQueue &q) : Mesh() {
 	std::vector<float> vertices = {
 		0.0f,  0.5f,  0.0f,		// Vertex 1 Position
 		-0.5f, -0.5f, 0.0f,		// Vertex 2 Position
@@ -217,3 +218,39 @@ TriangleMesh::TriangleMesh(NRI &nri, NRICommandQueue &q) : Mesh() {
 
 	init(nri, q, vertices, colors, normals, texCoords, indices);
 }
+
+QuadMesh::QuadMesh(nri::NRI &nri, nri::CommandQueue &q, float size) {
+	std::vector<float> vertices = {
+		-size / 2, size / 2,  0.0f,		// Vertex 1 Position
+		-size / 2, -size / 2, 0.0f,		// Vertex 2 Position
+		size / 2,  -size / 2, 0.0f,		// Vertex 3 Position
+		size / 2,  size / 2,  0.0f		// Vertex 4 Position
+	};
+	std::vector<float> colors = {
+		1.0f, 0.0f, 0.0f,	  // Vertex 1 Color
+		0.0f, 1.0f, 0.0f,	  // Vertex 2 Color
+		0.0f, 0.0f, 1.0f,	  // Vertex 3 Color
+		1.0f, 1.0f, 0.0f	  // Vertex 4 Color
+	};
+	std::vector<float> normals = {
+		0.0f, 0.0f, 1.0f,	  // Vertex 1 Normal
+		0.0f, 0.0f, 1.0f,	  // Vertex 2 Normal
+		0.0f, 0.0f, 1.0f,	  // Vertex 3 Normal
+		0.0f, 0.0f, 1.0f	  // Vertex 4 Normal
+	};
+
+	std::vector<float> texCoords = {
+		0.0f, 1.0f,		// Vertex 1 TexCoord
+		0.0f, 0.0f,		// Vertex 2 TexCoord
+		1.0f, 0.0f,		// Vertex 3 TexCoord
+		1.0f, 1.0f		// Vertex 4 TexCoord
+	};
+
+	std::vector<uint32_t> indices = {
+		0, 1, 2,	 // Triangle 1
+		2, 3, 0		 // Triangle 2
+	};
+
+	init(nri, q, vertices, colors, normals, texCoords, indices);
+}
+}	  // namespace beamcast

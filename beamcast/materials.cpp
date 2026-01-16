@@ -2,13 +2,13 @@
 #include <rapidjson/document.h>
 #include "scene.hpp"
 
+namespace beamcast {
 DiffuseMaterial::DiffuseMaterial(const rapidjson::Value &obj, const Scene &scene) : Material(obj, true, true) {
 	const auto &albedoJSON = obj["albedo"];
 	if (albedoJSON.IsArray()) {
 		const auto &colorJSON = albedoJSON.GetArray();
-		this->albedoColor =
-			glm::vec3{colorJSON[0].GetFloat(), colorJSON[1].GetFloat(), colorJSON[2].GetFloat()};
-		this->albedo = nullptr;
+		this->albedoColor	  = glm::vec3{colorJSON[0].GetFloat(), colorJSON[1].GetFloat(), colorJSON[2].GetFloat()};
+		this->albedo		  = nullptr;
 		return;
 	} else if (albedoJSON.IsString()) {
 		this->albedoColor			 = glm::vec3(0, 0, 0);
@@ -19,3 +19,4 @@ DiffuseMaterial::DiffuseMaterial(const rapidjson::Value &obj, const Scene &scene
 	}
 	doubleSided = false;
 }
+}	  // namespace beamcast

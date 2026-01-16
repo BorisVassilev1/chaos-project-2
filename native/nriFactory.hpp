@@ -5,18 +5,22 @@
 
 #include "nri.hpp"
 
-class NRIFactory {
-	using NRICreateFunction = std::function<std::unique_ptr<NRI>()>;
+namespace nri {
 
-	std::map<std::string, NRICreateFunction> nriInfos;
+class Factory {
+	using CreateFunction = std::function<std::unique_ptr<NRI>()>;
+
+	std::map<std::string, CreateFunction> nriInfos;
 
    public:
-	NRIFactory() = default;
+	Factory() = default;
 
-	static NRIFactory &getInstance();
+	static Factory &getInstance();
 
-	void registerNRI(const char *name, NRICreateFunction createFunction);
-	std::unique_ptr<NRI> createNRI(const std::string &name) const;
+	void					 registerNRI(const char *name, CreateFunction createFunction);
+	std::unique_ptr<NRI>	 createNRI(const std::string &name) const;
 	std::vector<std::string> getAvailableNRIs() const;
-	std::string selectNRIGUI() const;
+	std::string				 selectNRIGUI() const;
 };
+
+}	  // namespace nri

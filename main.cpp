@@ -3,6 +3,6 @@
 #include "beamcast/gui.hpp"
 
 int main(int argc, char *argv[]) {
-	BeamcastApplication app(argc, argv);
+	beamcast::BeamcastApplication app(argc, argv);
 	return app.exec();
 }
