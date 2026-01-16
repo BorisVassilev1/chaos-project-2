@@ -144,9 +144,9 @@ ITERATE_TEXTURE_TYPES(DEFINE_3D_LOAD_OVERLOADS, Texture3D)
 #define DEFINE_RWTEXTURE_TYPES_AND_FORMATS_SLOTS(textureType, bindingA, bindingB) \
 	ITERATE_TEXTURE_TYPES(_GENERATE_RWTEXTURE_TYPE_SLOT, textureType, bindingA, bindingB)
 
-DEFINE_RWTEXTURE_TYPES_AND_FORMATS_SLOTS(RWTexture1D, 0, 0)
-DEFINE_RWTEXTURE_TYPES_AND_FORMATS_SLOTS(RWTexture2D, 0, 0)
-DEFINE_RWTEXTURE_TYPES_AND_FORMATS_SLOTS(RWTexture3D, 0, 0)
+DEFINE_RWTEXTURE_TYPES_AND_FORMATS_SLOTS(RWTexture1D, 1, 0)
+DEFINE_RWTEXTURE_TYPES_AND_FORMATS_SLOTS(RWTexture2D, 1, 0)
+DEFINE_RWTEXTURE_TYPES_AND_FORMATS_SLOTS(RWTexture3D, 1, 0)
 
 class RWTextureHandle {
 	ResourceHandle handle;
@@ -222,7 +222,7 @@ ITERATE_TEXTURE_TYPES(DEFINE_3D_RWLOAD_OVERLOADS, RWTexture3D)
 #undef DEFINE_TEXTURE_TYPES_AND_FORMATS_SLOTS
 #undef ITERATE_TEXTURE_TYPES
 
-ByteAddressBuffer g_StorageBuffer    [ BINDLESS_RESCRIPTOR_HEAP_SIZE ] : register(t0);
+ByteAddressBuffer g_StorageBuffer    [ BINDLESS_RESCRIPTOR_HEAP_SIZE ] : register(t3);
 
 class ArrayBufferHandle {
 	ResourceHandle handle;
@@ -236,7 +236,7 @@ class ArrayBufferHandle {
 	}
 };
 
-RaytracingAccelerationStructure g_AccelerationStructures [ BINDLESS_RESCRIPTOR_HEAP_SIZE ] : register(t0);
+RaytracingAccelerationStructure g_AccelerationStructures [ 50 ] : register(t4);
 
 class AccelerationStructureHandle {
 	ResourceHandle handle;

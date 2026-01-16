@@ -2,8 +2,9 @@
 
 struct PushConstants
 {
-	AccelerationStructureHandle sceneBVH;
+	column_major float4x4 cameraWorldMatrix;
 	RWTextureHandle outputTexture;
+	AccelerationStructureHandle sceneBVH;
 };
 
 VK_PUSH_CONST_ATTR
@@ -36,11 +37,11 @@ void RayGenMain()
 	ray.TMin = 0.0;
 	ray.TMax = 10000.0;
 
-	sceneBVH.TraceRayKHR<RayPayload>(
-		RAY_FLAG_NONE,
-		0xFF,
-		0,1,0,
-		ray, payload
-	);
-	outputTexture.Store2D(pixelCoord, float4(payload.color, 1.0));
+	//sceneBVH.TraceRayKHR<RayPayload>(
+	//	RAY_FLAG_NONE,
+	//	0xFF,
+	//	0,1,0,
+	//	ray, payload
+	//);
+	outputTexture.Store2D(pixelCoord, float4(1.0, 0.0, 0.0, 1.0) );
 }

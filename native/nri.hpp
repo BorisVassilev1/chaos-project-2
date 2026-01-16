@@ -36,7 +36,8 @@ enum BufferUsage {
 	BUFFER_USAGE_STORAGE				= 1 << 3,
 	BUFFER_USAGE_TRANSFER_SRC			= 1 << 4,
 	BUFFER_USAGE_TRANSFER_DST			= 1 << 5,
-	BUFFER_USAGE_ACCELERATION_STRUCTURE = 1 << 6
+	BUFFER_USAGE_ACCELERATION_STRUCTURE = 1 << 6,
+	BUFFER_USAGE_SHADER_BINDING_TABLE   = 1 << 7
 };
 
 enum Format {
@@ -424,7 +425,7 @@ class ProgramBuilder {
 	ProgramBuilder							  &setPushConstantRanges(const std::vector<PushConstantRange> &ranges);
 	virtual std::unique_ptr<GraphicsProgram>   buildGraphicsProgram()	= 0;
 	virtual std::unique_ptr<ComputeProgram>	   buildComputeProgram()	= 0;
-	virtual std::unique_ptr<RayTracingProgram> buildRayTracingProgram() = 0;
+	virtual std::unique_ptr<RayTracingProgram> buildRayTracingProgram(nri::CommandBuffer &cmdBuf) = 0;
 };
 
 /// Program - represents a GPU program (shader)

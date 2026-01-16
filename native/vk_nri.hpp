@@ -264,7 +264,7 @@ class VulkanProgramBuilder : public ProgramBuilder {
 
 	std::unique_ptr<GraphicsProgram>   buildGraphicsProgram() override;
 	std::unique_ptr<ComputeProgram>	   buildComputeProgram() override;
-	std::unique_ptr<RayTracingProgram> buildRayTracingProgram() override;
+	std::unique_ptr<RayTracingProgram> buildRayTracingProgram(nri::CommandBuffer &cmdBuff) override;
 };
 
 class VulkanProgram : virtual Program {
@@ -272,10 +272,12 @@ class VulkanProgram : virtual Program {
 	VulkanNRI				&nri;
 	vk::raii::Pipeline		 pipeline;
 	vk::raii::PipelineLayout pipelineLayout;
+	vk::PipelineBindPoint	 bindPoint;
 
    public:
-	VulkanProgram(VulkanNRI &nri, vk::raii::Pipeline &&ppln, vk::raii::PipelineLayout &&layout)
-		: nri(nri), pipeline(std::move(ppln)), pipelineLayout(std::move(layout)) {}
+	VulkanProgram(VulkanNRI &nri, vk::raii::Pipeline &&ppln, vk::raii::PipelineLayout &&layout,
+				  vk::PipelineBindPoint bindPoint)
+		: nri(nri), pipeline(std::move(ppln)), pipelineLayout(std::move(layout)), bindPoint(bindPoint) {}
 
 	void bind(CommandBuffer &commandBuffer) override;
 	void unbind(CommandBuffer &commandBuffer) override;
@@ -288,7 +290,8 @@ class VulkanProgram : virtual Program {
 
 class VulkanGraphicsProgram : public VulkanProgram, public GraphicsProgram {
    public:
-	using VulkanProgram::VulkanProgram;
+	VulkanGraphicsProgram(VulkanNRI &nri, vk::raii::Pipeline &&ppln, vk::raii::PipelineLayout &&layout)
+		: VulkanProgram(nri, std::move(ppln), std::move(layout), vk::PipelineBindPoint::eGraphics) {}
 
 	void draw(CommandBuffer &commandBuffer, uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex,
 			  uint32_t firstInstance) override;
@@ -298,7 +301,8 @@ class VulkanGraphicsProgram : public VulkanProgram, public GraphicsProgram {
 
 class VulkanComputeProgram : public VulkanProgram, public ComputeProgram {
    public:
-	using VulkanProgram::VulkanProgram;
+	VulkanComputeProgram(VulkanNRI &nri, vk::raii::Pipeline &&ppln, vk::raii::PipelineLayout &&layout)
+		: VulkanProgram(nri, std::move(ppln), std::move(layout), vk::PipelineBindPoint::eCompute) {}
 
 	void dispatch(CommandBuffer &commandBuffer, uint32_t groupCountX, uint32_t groupCountY,
 				  uint32_t groupCountZ) override;
@@ -306,7 +310,23 @@ class VulkanComputeProgram : public VulkanProgram, public ComputeProgram {
 
 class VulkanRayTracingProgram : public VulkanProgram, public RayTracingProgram {
    public:
-	using VulkanProgram::VulkanProgram;
+	VulkanBuffer	 sbtBuffer;
+	VulkanAllocation sbtMemory;
+
+	VulkanBuffer	 uploadBuffer;
+	VulkanAllocation uploadMemory;
+
+	vk::StridedDeviceAddressRegionKHR sbtRayGenRegion;	   // TODO: this should be private
+	vk::StridedDeviceAddressRegionKHR sbtMissRegion;
+	vk::StridedDeviceAddressRegionKHR sbtHitRegion;
+	VulkanRayTracingProgram(VulkanNRI &nri, vk::raii::Pipeline &&ppln, vk::raii::PipelineLayout &&layout,
+							VulkanBuffer &&sbtBuf, VulkanAllocation &&sbtMem, VulkanBuffer &&uploadBuf,
+							VulkanAllocation &&uploadMem)
+		: VulkanProgram(nri, std::move(ppln), std::move(layout), vk::PipelineBindPoint::eRayTracingKHR),
+		  sbtBuffer(std::move(sbtBuf)),
+		  sbtMemory(std::move(sbtMem)),
+		  uploadBuffer(std::move(uploadBuf)),
+		  uploadMemory(std::move(uploadMem)) {}
 
 	void traceRays(CommandBuffer &commandBuffer, uint32_t width, uint32_t height, uint32_t depth) override;
 };
