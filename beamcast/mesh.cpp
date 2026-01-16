@@ -93,6 +93,31 @@ void Mesh::init(NRI &nri, NRICommandQueue &q, std::span<float> vertices, std::sp
 	if (nriRayTracingSupported) bottomLevelAS->buildFinished();
 }
 
+static void recalculateNormals(std::span<const glm::vec3> vertices, std::span<const glm::uvec3> indices,
+							   std::span<glm::vec3> normals) {
+	std::vector<std::pair<glm::vec3, unsigned int>> normalsSum(vertices.size(), {glm::vec3(0.0f), 0});
+	for (const auto &index : indices) {
+		glm::vec3 normal =
+			normalize(cross(vertices[index.y] - vertices[index.x], vertices[index.z] - vertices[index.x]));
+		normalsSum[index.x].first += normal;
+		normalsSum[index.y].first += normal;
+		normalsSum[index.z].first += normal;
+		normalsSum[index.x].second++;
+		normalsSum[index.y].second++;
+		normalsSum[index.z].second++;
+	}
+	for (const auto &[i, data] : std::views::enumerate(normalsSum)) {
+		auto &[normal, count] = data;
+		if (count > 0) {
+			normal /= float(count);
+			normal	   = normalize(normal);
+			normals[i] = normal;
+		} else {
+			dbLog(dbg::LOG_WARNING, "Normal for vertex ", i, " has no triangles, setting to default normal.");
+		}
+	}
+}
+
 Mesh::Mesh(NRI &nri, NRICommandQueue &q, const rapidjson::Value &obj) {
 	auto &verticesJSON = obj["vertices"];
 	assert(verticesJSON.IsArray());
@@ -114,8 +139,8 @@ Mesh::Mesh(NRI &nri, NRICommandQueue &q, const rapidjson::Value &obj) {
 
 	texCoords.reserve(vertices.size());
 	if (obj.FindMember("uvs") == obj.MemberEnd()) {
-		texCoords.resize(vertices.size(), 0.0f);
-		// dbLog(dbg::LOG_WARNING, "No texture coordinates found in triangle object.");
+		texCoords.resize(vertices.size() / 3 * 2, 0.0f);
+		dbLog(dbg::LOG_WARNING, "No texture coordinates found in triangle object.");
 	} else {
 		auto &texCoordsJSON = obj["uvs"];
 		assert(texCoordsJSON.Capacity() == verticesJSON.Capacity());
@@ -130,7 +155,6 @@ Mesh::Mesh(NRI &nri, NRICommandQueue &q, const rapidjson::Value &obj) {
 	}
 
 	if (obj.FindMember("normals") == obj.MemberEnd()) {
-		normals.resize(vertices.size(), 0.0f);
 		dbLog(dbg::LOG_WARNING, "No normals found in triangle object.");
 	} else {
 		auto &normalsJSON = obj["normals"];
@@ -166,6 +190,17 @@ Mesh::Mesh(NRI &nri, NRICommandQueue &q, const rapidjson::Value &obj) {
 		indices.push_back(idx0);
 		indices.push_back(idx1);
 		indices.push_back(idx2);
+	}
+
+	if (normals.size() == 0) {
+		normals.resize(vertices.size(), 0.0f);
+		// disgusting but will work
+		auto vertexSpan =
+			std::span<const glm::vec3>(reinterpret_cast<const glm::vec3 *>(vertices.data()), vertices.size() / 3);
+		auto indexSpan =
+			std::span<const glm::uvec3>(reinterpret_cast<const glm::uvec3 *>(indices.data()), indices.size() / 3);
+		auto normalSpan = std::span<glm::vec3>(reinterpret_cast<glm::vec3 *>(normals.data()), normals.size() / 3);
+		recalculateNormals(vertexSpan, indexSpan, normalSpan);
 	}
 
 	auto colors = std::vector<float>(vertices.size(), 1.0f);

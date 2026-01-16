@@ -24,8 +24,18 @@ class BeamcastRenderer : public Renderer {
 
 	std::unique_ptr<NRIRayTracingProgram> rayTracingShader;
 
+	std::string scene_path;
+
 	BeamcastRenderer(NRI &nri, QApplication &app)
-		: Renderer(nri), camera(app, 800, 600, nri.shouldFlipY()), isKeyPressed(app) {}
+		: Renderer(nri), camera(app, 800, 600, nri.shouldFlipY()), isKeyPressed(app) {
+		auto args = app.arguments();
+		if (args.size() > 1) {
+			scene_path = args[1].toStdString();
+		} else {
+			dbLog(dbg::LOG_WARNING, "No scene path provided. Using default scene: export.json");
+			scene_path = PROJECT_ROOT_DIR "/export.json";
+		}
+	}
 
 	NRIQWindow *window;
 
@@ -34,9 +44,8 @@ class BeamcastRenderer : public Renderer {
 
 		mesh = std::make_unique<TriangleMesh>(nri, window.getMainQueue());
 
-		scene = std::make_unique<Scene>(nri, window.getMainQueue(), PROJECT_ROOT_DIR "/export.json");
-		if (nri.supportsRayTracing())
-			NRIResourceHandle sceneTextureHandle = scene->getTLAS().getHandle();
+		scene = std::make_unique<Scene>(nri, window.getMainQueue(), scene_path);
+		if (nri.supportsRayTracing()) NRIResourceHandle sceneTextureHandle = scene->getTLAS().getHandle();
 
 		if (nri.supportsTextures()) {
 			std::tie(texture, textureMemory) =
@@ -53,7 +62,7 @@ class BeamcastRenderer : public Renderer {
 					 .setPrimitiveType(NRI::PrimitiveType::PRIMITIVE_TYPE_TRIANGLES)
 					 .setPushConstantRanges({Scene::getPushConstantRange()})
 					 .buildGraphicsProgram();
-	
+
 		shaderBuilder = nri.createProgramBuilder();
 		/*rayTracingShader = shaderBuilder
 							   ->addShaderModule({PROJECT_ROOT_DIR "shaders/raygen.hlsl", "RayGenMain",

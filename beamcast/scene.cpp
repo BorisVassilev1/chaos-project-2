@@ -38,7 +38,7 @@ MeshObject::MeshObject(uint32_t meshIndex, const rapidjson::Value &obj) : meshIn
 	}
 }
 
-Scene::Scene(NRI &nri, NRICommandQueue &q, const std::string_view &filename) : nri(nri) {
+Scene::Scene(NRI &nri, NRICommandQueue &q, const std::string_view &filename) : nri(&nri) {
 	rapidjson::Document doc;
 	scenePath = filename;
 	std::ifstream file(filename.data());
@@ -171,7 +171,7 @@ void Scene::render(NRICommandBuffer &commandBuffer, NRIGraphicsProgram &program,
 		program.setPushConstants(commandBuffer, &modelViewProjection, sizeof(modelViewProjection), 0);
 
 		NRIResourceHandle textureHandle = NRIResourceHandle::INVALID_HANDLE;
-		if (nri.supportsTextures())
+		if (nri->supportsTextures())
 			textureHandle = material->getTextureHandle();
 		program.setPushConstants(commandBuffer, &textureHandle, sizeof(PushConstantData), sizeof(modelViewProjection));
 

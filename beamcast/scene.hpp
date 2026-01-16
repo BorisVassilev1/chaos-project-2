@@ -17,7 +17,7 @@ class MeshObject {
 };
 
 class Scene {
-	NRI									   &nri;
+	NRI									   *nri;
 	std::vector<Mesh>		meshes;
 	std::vector<MeshObject> meshObjects;
 	std::vector<std::unique_ptr<Material>>	materials;
