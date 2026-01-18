@@ -60,6 +60,7 @@ class VulkanDescriptorAllocator {
 	VulkanDescriptorAllocator(VulkanNRI &nri);
 
 	ResourceHandle addUniformBufferDescriptor(const VulkanBuffer &buffer);
+	ResourceHandle addStorageBufferDescriptor(const VulkanBuffer &buffer);
 	ResourceHandle addSamplerImageDescriptor(const VulkanTexture2D &image);
 	ResourceHandle addAccelerationStructureDescriptor(const VulkanTLAS &tlas);
 	ResourceHandle addStorageImageDescriptor(const VulkanStorageImage2D &image);
@@ -74,14 +75,15 @@ class VulkanDescriptorAllocator {
 class VulkanAllocation : public Allocation {
 	vk::raii::DeviceMemory memory;
 	vk::Device			   device;
+	std::size_t			   size;
 
    public:
-	VulkanAllocation(std::nullptr_t) : memory(nullptr), device(nullptr) {}
+	VulkanAllocation(std::nullptr_t) : memory(nullptr), device(nullptr), size(0) {}
 	VulkanAllocation(VulkanNRI &nri, MemoryRequirements memoryRequirements);
-	VulkanAllocation(vk::raii::DeviceMemory &&mem, vk::Device dev) : memory(std::move(mem)), device(dev) {}
 
 	vk::DeviceMemory getMemory() { return memory; }
 	vk::Device		 getDevice() { return device; }
+	std::size_t		 getSize() const override { return size; }
 };
 
 class VulkanBuffer : public Buffer {
@@ -92,6 +94,7 @@ class VulkanBuffer : public Buffer {
 	std::size_t offset = 0;
 	std::size_t size   = 0;
 
+	ResourceHandle	 createHandle() const override;
    public:
 	VulkanBuffer(std::nullptr_t) : nri(nullptr), buffer(nullptr), allocation(nullptr), offset(0), size(0) {}
 	VulkanBuffer(VulkanNRI &nri, std::size_t size, BufferUsage usage);
@@ -193,6 +196,8 @@ class VulkanImage2D : public Image2D {
 	void clear(CommandBuffer &commandBuffer, glm::vec4 color) override;
 
 	void prepareForPresent(CommandBuffer &commandBuffer) override;
+	void prepareForStorage(CommandBuffer &commandBuffer) override;
+	void prepareForTexture(CommandBuffer &commandBuffer) override;
 	void copyFrom(CommandBuffer &commandBuffer, Buffer &srcBuffer, std::size_t srcOffset,
 				  uint32_t srcRowPitch) override;
 
@@ -404,7 +409,7 @@ class VulkanTLAS : public TLAS {
 
    public:
 	VulkanTLAS(VulkanNRI &nri, const std::span<const BLAS *> &blases,
-			   std::optional<std::span<glm::mat4x3>> transforms = std::nullopt);
+			   std::optional<std::span<glm::mat3x4>> transforms = std::nullopt);
 
 	void		   build(CommandBuffer &commandBuffer) override;
 	void		   buildFinished() override;
@@ -479,7 +484,7 @@ class VulkanNRI : public NRI {
 									 IndexType indexType, std::size_t indexOffset) override;
 
 	std::unique_ptr<TLAS> createTLAS(const std::span<const BLAS *>		  &blases,
-									 std::optional<std::span<glm::mat4x3>> transforms = std::nullopt) override;
+									 std::optional<std::span<glm::mat3x4>> transforms = std::nullopt) override;
 
 	struct QueueFamilyIndices {
 		std::optional<uint32_t> graphicsFamily;

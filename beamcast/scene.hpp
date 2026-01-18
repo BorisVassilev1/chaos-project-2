@@ -6,6 +6,7 @@
 #include "materials.hpp"
 #include "mesh.hpp"
 #include "utils.hpp"
+#include "../shaders/common_structs.hlsl"
 
 namespace beamcast {
 class MeshObject {
@@ -15,6 +16,7 @@ class MeshObject {
 	glm::mat4 transform;
 
 	MeshObject(uint32_t meshIndex, const rapidjson::Value &meshObjectData);
+	GPUMeshObject getGPU() const;
 };
 
 class Scene {
@@ -30,6 +32,9 @@ class Scene {
 
 	std::vector<std::unique_ptr<nri::Allocation>> memoryAllocations;
 
+	std::unique_ptr<nri::Buffer>				 materialsBuffer; // array of GPUMaterial
+	std::unique_ptr<nri::Buffer>				 meshObjectsBuffer; // array of GPUMeshObject
+
 	std::unique_ptr<nri::TLAS> tlas;
 
    public:
@@ -43,11 +48,15 @@ class Scene {
 
 	nri::ImageView *getTexture(const std::string_view &name) const;
 
+	void updateGPUBuffers(nri::CommandQueue &queue);
+
 	struct PushConstantData {
 		nri::ResourceHandle textureHandle;
 	};
 
 	static nri::PushConstantRange getPushConstantRange();
 	nri::TLAS					 &getTLAS();
+	nri::Buffer &getMaterialsBuffer();
+	nri::Buffer &getMeshObjectsBuffer();
 };
 }	  // namespace beamcast

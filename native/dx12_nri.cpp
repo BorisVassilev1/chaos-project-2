@@ -1,4 +1,4 @@
-#if defined(_WIN32)		//&& defined(NRI_DX12)
+#if defined(_WIN32)		&& defined(NRI_DX12)
 	#include <windows.h>
 	#include <wrl/client.h>
 	#include "dx12_nri.hpp"
@@ -625,6 +625,8 @@ std::vector<ComPtr<ID3DBlob>> DX12NRIProgramBuilder::compileShaderModules(
 		arguments.push_back(entryPoint.c_str());
 		arguments.push_back(L"-D");
 		arguments.push_back(L"DX12");
+		arguments.push_back(L"-D");
+		arguments.push_back(L"SHADER");
 		arguments.push_back(L"-T");
 		switch (shaderCreateInfo.shaderType) {
 			case NRI::ShaderType::SHADER_TYPE_VERTEX: arguments.push_back(L"vs_6_5"); break;
@@ -1110,7 +1112,7 @@ std::unique_ptr<NRIBLAS> DX12NRI::createBLAS(NRIBuffer &vertexBuffer, NRI::Forma
 	throw std::runtime_error("Not implemented yet.");
 }
 std::unique_ptr<NRITLAS> DX12NRI::createTLAS(const std::span<const NRIBLAS *>	  &blases,
-											 std::optional<std::span<glm::mat4x3>> transforms) {
+											 std::optional<std::span<glm::mat3x4>> transforms) {
 	throw std::runtime_error("Not implemented yet.");
 }
 

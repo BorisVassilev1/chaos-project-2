@@ -98,6 +98,16 @@ void QWindow::mouseMoveEvent(::QMouseEvent *event) {
 		cb(event);
 }
 
+ResourceHandle Buffer::getHandle() {
+	if (handle == ResourceHandle::INVALID_HANDLE) {
+		handle = createHandle();
+		if (handle == ResourceHandle::INVALID_HANDLE) {
+			dbLog(dbg::LOG_ERROR, "Failed to create Buffer handle! This is not fatal, but usage may fail.");
+		}
+	}
+	return handle;
+}
+
 ResourceHandle ImageView::getHandle() {
 	if (handle == ResourceHandle::INVALID_HANDLE) {
 		handle = createHandle();

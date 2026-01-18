@@ -24,10 +24,17 @@ std::unique_ptr<nri::Allocation> allocateBindMemory(nri::NRI &nri, const std::ve
 													nri::MemoryTypeRequest memoryTypeRequest) {
 	auto [offsets, memReq] = getBufferOffsets(buffers);
 
-	auto allocation = nri.allocateMemory(memReq.setTypeRequest(memoryTypeRequest));
+	return allocateBindMemory(nri, offsets, memReq.setTypeRequest(memoryTypeRequest), buffers);
+}
+
+std::unique_ptr<nri::Allocation> allocateBindMemory(nri::NRI &nri, const std::vector<std::size_t> &bufferOffsets,
+													nri::MemoryRequirements			  memReq,
+													const std::vector<nri::Buffer *> &buffers) {
+	auto allocation = nri.allocateMemory(memReq);
 	for (std::size_t i = 0; i < buffers.size(); i++) {
-		buffers[i]->bindMemory(*allocation, offsets[i]);
+		buffers[i]->bindMemory(*allocation, bufferOffsets[i]);
 	}
 	return allocation;
 }
+
 }	  // namespace beamcast

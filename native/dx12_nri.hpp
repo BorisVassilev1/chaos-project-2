@@ -1,7 +1,7 @@
 #pragma once
 #include "nri.hpp"
 
-#if defined(_WIN32) //&& defined(NRI_DX12)
+#if defined(_WIN32) && defined(NRI_DX12)
 	#include <dxgi1_6.h>
 	#include <d3d12.h>
 	#include <wrl.h>
@@ -278,7 +278,7 @@ class DX12NRI : public NRI {
 										uint32_t vertexCount, std::size_t vertexStride, NRIBuffer &indexBuffer,
 										NRI::IndexType indexType, std::size_t indexOffset) override;
 	std::unique_ptr<NRITLAS> createTLAS(const std::span<const NRIBLAS *>	 &blases,
-										std::optional<std::span<glm::mat4x3>> transforms = std::nullopt) override;
+										std::optional<std::span<glm::mat3x4>> transforms = std::nullopt) override;
 
 	bool shouldFlipY() const override { return false; }
 	bool supportsRayTracing() const override { return false; }

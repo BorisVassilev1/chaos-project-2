@@ -33,6 +33,10 @@ class Camera {
 
 	glm::vec3 getPosition() const { return transform.position; }
 	glm::vec3 getRotation() const { return transform.rotation; }
+	float getAspectRatio() const { return aspectRatio; }
+	float getFOV() const { return fov; }
+	float getNearPlane() const { return nearPlane; }
+	float getFarPlane() const { return farPlane; }
 
 	static nri::PushConstantRange getPushConstantRange();
 

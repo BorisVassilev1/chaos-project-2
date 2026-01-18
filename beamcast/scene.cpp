@@ -6,6 +6,7 @@
 #include <rapidjson/error/en.h>
 
 #include "../engine/image_utils.hpp"
+#include "../engine/buffer_utils.hpp"
 
 #include "glm/ext/matrix_transform.hpp"
 #include "utils.hpp"
@@ -37,6 +38,12 @@ MeshObject::MeshObject(uint32_t meshIndex, const rapidjson::Value &obj) : meshIn
 
 		// isIdentity = transform == identity<float, 4>();
 	}
+}
+
+GPUMeshObject MeshObject::getGPU() const {
+	GPUMeshObject gpuObj = {.materialIndex = materialIndex};
+	dbLog(dbg::LOG_DEBUG, "MeshObject GPU material index: ", gpuObj.materialIndex);
+	return gpuObj;
 }
 
 Scene::Scene(nri::NRI &nri, nri::CommandQueue &q, const std::string_view &filename) : nri(&nri) {
@@ -82,11 +89,11 @@ Scene::Scene(nri::NRI &nri, nri::CommandQueue &q, const std::string_view &filena
 
 	if (nri.supportsRayTracing()) {
 		std::vector<const nri::BLAS *> blasList;
-		std::vector<glm::mat4x3>	   transforms;
+		std::vector<glm::mat3x4>	   transforms;
 		for (const auto &obj : meshObjects) {
 			assert(obj.meshIndex < meshes.size());
 			blasList.push_back(&(meshes[obj.meshIndex].getBLAS()));
-			transforms.push_back(glm::mat4x3(obj.transform));
+			transforms.push_back(glm::mat3x4(glm::transpose(obj.transform)));
 		}
 		dbLog(dbg::LOG_INFO, "Creating TLAS with ", blasList.size(), " instances.");
 		tlas		= nri.createTLAS(blasList, transforms);
@@ -160,6 +167,7 @@ Scene::Scene(nri::NRI &nri, nri::CommandQueue &q, const std::string_view &filena
 			}
 		}
 	}
+	updateGPUBuffers(q);
 }
 
 void Scene::render(nri::CommandBuffer &commandBuffer, nri::GraphicsProgram &program, const Camera &camera) {
@@ -201,10 +209,50 @@ nri::ImageView *Scene::getTexture(const std::string_view &name) const {
 	}
 }
 
+void Scene::updateGPUBuffers(nri::CommandQueue &queue) {
+	materialsBuffer =
+		nri->createBuffer(sizeof(GPUMaterial) * materials.size(),
+						  nri::BufferUsage::BUFFER_USAGE_STORAGE | nri::BufferUsage::BUFFER_USAGE_TRANSFER_DST);
+	meshObjectsBuffer =
+		nri->createBuffer(sizeof(GPUMeshObject) * meshObjects.size(),
+						  nri::BufferUsage::BUFFER_USAGE_STORAGE | nri::BufferUsage::BUFFER_USAGE_TRANSFER_DST);
+
+	auto [offsets, memreq] = beamcast::getBufferOffsets({materialsBuffer.get(), meshObjectsBuffer.get()});
+	auto mem =
+		beamcast::allocateBindMemory(*nri, offsets, memreq.setTypeRequest(nri::MemoryTypeRequest::MEMORY_TYPE_DEVICE),
+									 {materialsBuffer.get(), meshObjectsBuffer.get()});
+	memoryAllocations.push_back(std::move(mem));
+
+	auto stagingBuffer = nri->createBuffer(memreq.size, nri::BufferUsage::BUFFER_USAGE_TRANSFER_SRC);
+	auto stagingMem =
+		beamcast::allocateBindMemory(*nri, {stagingBuffer.get()}, nri::MemoryTypeRequest::MEMORY_TYPE_UPLOAD);
+	{
+		void		*data		  = stagingBuffer->map(0, stagingBuffer->getSize());
+		GPUMaterial *gpuMaterials = (GPUMaterial *)((uint8_t *)data + offsets[0]);
+		for (size_t i = 0; i < materials.size(); ++i)
+			gpuMaterials[i] = materials[i]->getGPU();
+		GPUMeshObject *gpuMeshObjects = (GPUMeshObject *)((uint8_t *)data + offsets[1]);
+		for (size_t i = 0; i < meshObjects.size(); ++i)
+			gpuMeshObjects[i] = meshObjects[i].getGPU();
+
+		stagingBuffer->unmap();
+	}
+
+	auto cmdBuf = nri->createCommandBuffer(nri->getDefaultCommandPool());
+	cmdBuf->begin();
+	materialsBuffer->copyFrom(*cmdBuf, *stagingBuffer, offsets[0], 0, materialsBuffer->getSize());
+	meshObjectsBuffer->copyFrom(*cmdBuf, *stagingBuffer, offsets[1], 0, meshObjectsBuffer->getSize());
+	cmdBuf->end();
+	auto key = queue.submit(*cmdBuf);
+	queue.wait(key);
+}
+
 nri::PushConstantRange Scene::getPushConstantRange() {
 	auto cameraRange = Camera::getPushConstantRange();
 	return {cameraRange.offset, uint32_t(cameraRange.size + sizeof(PushConstantData))};
 }
 
-nri::TLAS &Scene::getTLAS() { return *tlas; }
+nri::TLAS	&Scene::getTLAS() { return *tlas; }
+nri::Buffer &Scene::getMaterialsBuffer() { return *materialsBuffer; }
+nri::Buffer &Scene::getMeshObjectsBuffer() { return *meshObjectsBuffer; }
 }	  // namespace beamcast

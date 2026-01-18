@@ -29,8 +29,9 @@ class BeamcastRenderer : public nri::Renderer {
 	std::unique_ptr<nri::RayTracingProgram> rayTracingShader;
 	std::unique_ptr<nri::Image2D>			rayTracingOutputImage;
 	std::unique_ptr<nri::Allocation>		rayTracingOutputImageMemory;
-	std::unique_ptr<nri::ImageView>			rayTracingOutputImageView;
-	nri::ResourceHandle						rayTracingOutputImageHandle;
+	std::unique_ptr<nri::ImageView>			rayTracingOutputImageRWView;
+	std::unique_ptr<nri::ImageView>			rayTracingOutputImageSampledView;
+	bool raytracing = false;
 
 	BeamcastRenderer(nri::NRI &nri, QApplication &app);
 

@@ -19,4 +19,37 @@ DiffuseMaterial::DiffuseMaterial(const rapidjson::Value &obj, const Scene &scene
 	}
 	doubleSided = false;
 }
+
+GPUMaterial DiffuseMaterial::getGPU() const {
+	GPUMaterial gpuMat = {
+		.albedo		   = glm::vec4(albedoColor, 1.0f),
+		.albedoTexture = albedo ? albedo->getHandle() : nri::ResourceHandle::INVALID_HANDLE,
+	};
+	return gpuMat;
+}
+
+GPUMaterial ReflectiveMaterial::getGPU() const {
+	GPUMaterial gpuMat = {
+		.albedo		   = glm::vec4(albedo, 0.0f),
+		.albedoTexture = nri::ResourceHandle::INVALID_HANDLE,
+	};
+	return gpuMat;
+}
+
+GPUMaterial RefractiveMaterial::getGPU() const {
+	GPUMaterial gpuMat = {
+		.albedo		   = glm::vec4(1.0f - absorbtion, 0.0f),
+		.albedoTexture = nri::ResourceHandle::INVALID_HANDLE,
+	};
+	return gpuMat;
+}
+
+GPUMaterial ConstantMaterial::getGPU() const {
+	GPUMaterial gpuMat = {
+		.albedo		   = glm::vec4(albedo, 0.0f),
+		.albedoTexture = nri::ResourceHandle::INVALID_HANDLE,
+	};
+	return gpuMat;
+}
+
 }	  // namespace beamcast

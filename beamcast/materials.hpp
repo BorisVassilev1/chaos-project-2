@@ -3,6 +3,7 @@
 #include <rapidjson/document.h>
 
 #include "../native/nri.hpp"
+#include "../shaders/common_structs.hlsl"
 
 namespace beamcast {
 class Scene;
@@ -28,6 +29,7 @@ class Material {
 	virtual ~Material() = default;
 
 	virtual nri::ResourceHandle getTextureHandle() const { return nri::ResourceHandle::INVALID_HANDLE; }
+	virtual GPUMaterial			getGPU() const = 0;
 };
 
 class DiffuseMaterial : public Material {
@@ -40,7 +42,7 @@ class DiffuseMaterial : public Material {
 	DiffuseMaterial(const rapidjson::Value &obj, const Scene &scene);
 	// vec4 shade(const RayHit &hit, const Ray &, const Scene &scene, uint32_t &seed) const override;
 
-	virtual nri::ResourceHandle getTextureHandle() const override {
+	nri::ResourceHandle getTextureHandle() const override {
 		if (albedo) {
 			// Assume albedo texture is bound as a sampler image at index 0
 			return albedo->getHandle();
@@ -48,6 +50,8 @@ class DiffuseMaterial : public Material {
 			return nri::ResourceHandle::INVALID_HANDLE;
 		}
 	}
+
+	GPUMaterial getGPU() const override;
 };
 
 class ReflectiveMaterial : public Material {
@@ -61,7 +65,7 @@ class ReflectiveMaterial : public Material {
 		albedo				  = glm::vec3{colorJSON[0].GetFloat(), colorJSON[1].GetFloat(), colorJSON[2].GetFloat()};
 	}
 
-	// vec4 shade(const RayHit &hit, const Ray &, const Scene &scene, uint32_t &seed) const override;
+	GPUMaterial getGPU() const override;
 };
 
 class RefractiveMaterial : public Material {
@@ -86,7 +90,7 @@ class RefractiveMaterial : public Material {
 		doubleSided = true;
 	}
 
-	// vec4 shade(const RayHit &hit, const Ray &, const Scene &scene, uint32_t &seed) const override;
+	GPUMaterial getGPU() const override;
 };
 
 class ConstantMaterial : public Material {
@@ -100,8 +104,7 @@ class ConstantMaterial : public Material {
 		albedo = glm::vec3{albedoJSON[0].GetFloat(), albedoJSON[1].GetFloat(), albedoJSON[2].GetFloat()};
 	}
 
-	// vec4 shade(const RayHit &, const Ray &, const Scene &, uint32_t &) const override { return
-	// glm::vec4(albedo, 1.0f); }
+	GPUMaterial getGPU() const override;
 };
 
 }	  // namespace beamcast

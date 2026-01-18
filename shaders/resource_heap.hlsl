@@ -74,6 +74,13 @@ class TextureHandle {
 	T Sample3D(float3 uvw);
 
 	template<typename T>
+	T Sample1D(float u, float lod);
+	template<typename T>
+	T Sample2D(float2 uv, float lod);
+	template<typename T>
+	T Sample3D(float3 uvw, float lod);
+
+	template<typename T>
 	T Load1D(uint x);
 	template<typename T>
 	T Load2D(uint2 xy);
@@ -83,12 +90,13 @@ class TextureHandle {
 	bool IsValid() { return handle.IsValid(); }
 };
 
-#define DESCRIPTOR_HEAP(type, index) CONCAT(g_, type [ index ])
+#define DESCRIPTOR_HEAP(type, index) CONCAT(g_, type [ NonUniformResourceIndex(index) ])
+
 #define DEFINE_1D_OVERLOADS(nativeType, resourceType) \
 template<>  \
 nativeType TextureHandle::Sample1D<nativeType>(float u) { \
 	uint index = handle.GetIndex(); \
-	SamplerState sampler = g_Samplers[index]; \
+	SamplerState sampler = g_Samplers[NonUniformResourceIndex(index)]; \
 	return DESCRIPTOR_HEAP(resourceType##nativeType, index).Sample(sampler, u); \
 }
 
@@ -96,7 +104,7 @@ nativeType TextureHandle::Sample1D<nativeType>(float u) { \
 template<>  \
 nativeType TextureHandle::Sample2D<nativeType>(float2 uv) { \
 	uint index = handle.GetIndex(); \
-	SamplerState sampler = g_Samplers[index]; \
+	SamplerState sampler = g_Samplers[NonUniformResourceIndex(index)]; \
 	return DESCRIPTOR_HEAP(resourceType##nativeType, index).Sample(sampler, uv); \
 }
 
@@ -104,8 +112,32 @@ nativeType TextureHandle::Sample2D<nativeType>(float2 uv) { \
 template<>  \
 nativeType TextureHandle::Sample3D<nativeType>(float3 uvw) { \
 	uint index = handle.GetIndex(); \
-	SamplerState sampler = g_Samplers[index]; \
+	SamplerState sampler = g_Samplers[NonUniformResourceIndex(index)]; \
 	return DESCRIPTOR_HEAP(resourceType##nativeType, index).Sample(sampler, uvw); \
+}
+
+#define DEFINE_1D_OVERLOADS_LOD(nativeType, resourceType) \
+template<>  \
+nativeType TextureHandle::Sample1D<nativeType>(float u, float lod) { \
+	uint index = handle.GetIndex(); \
+	SamplerState sampler = g_Samplers[NonUniformResourceIndex(index)]; \
+	return DESCRIPTOR_HEAP(resourceType##nativeType, index).SampleLevel(sampler, u, lod); \
+}
+
+#define DEFINE_2D_OVERLOADS_LOD(nativeType, resourceType) \
+template<>  \
+nativeType TextureHandle::Sample2D<nativeType>(float2 uv, float lod) { \
+	uint index = handle.GetIndex(); \
+	SamplerState sampler = g_Samplers[NonUniformResourceIndex(index)]; \
+	return DESCRIPTOR_HEAP(resourceType##nativeType, index).SampleLevel(sampler, uv, lod); \
+}
+
+#define DEFINE_3D_OVERLOADS_LOD(nativeType, resourceType) \
+template<>  \
+nativeType TextureHandle::Sample3D<nativeType>(float3 uvw, float lod) { \
+	uint index = handle.GetIndex(); \
+	SamplerState sampler = g_Samplers[NonUniformResourceIndex(index)]; \
+	return DESCRIPTOR_HEAP(resourceType##nativeType, index).SampleLevel(sampler, uvw, lod); \
 }
 
 #define DEFINE_1D_LOAD_OVERLOADS(nativeType, resourceType) \
@@ -132,6 +164,9 @@ nativeType TextureHandle::Load3D<nativeType>(uint3 xyz) { \
 ITERATE_SAMPLEABLE_TYPES(DEFINE_1D_OVERLOADS, Texture1D)
 ITERATE_SAMPLEABLE_TYPES(DEFINE_2D_OVERLOADS, Texture2D)
 ITERATE_SAMPLEABLE_TYPES(DEFINE_3D_OVERLOADS, Texture3D)
+ITERATE_SAMPLEABLE_TYPES(DEFINE_1D_OVERLOADS_LOD, Texture1D)
+ITERATE_SAMPLEABLE_TYPES(DEFINE_2D_OVERLOADS_LOD, Texture2D)
+ITERATE_SAMPLEABLE_TYPES(DEFINE_3D_OVERLOADS_LOD, Texture3D)
 ITERATE_TEXTURE_TYPES(DEFINE_1D_LOAD_OVERLOADS, Texture1D)
 ITERATE_TEXTURE_TYPES(DEFINE_2D_LOAD_OVERLOADS, Texture2D)
 ITERATE_TEXTURE_TYPES(DEFINE_3D_LOAD_OVERLOADS, Texture3D)
@@ -232,7 +267,7 @@ class ArrayBufferHandle {
 	template<typename T>
 	T Load(uint index) {
 		uint handleIndex = handle.GetIndex();
-		return g_StorageBuffer [ handleIndex ].Load<T>(index);
+		return g_StorageBuffer [ NonUniformResourceIndex(handleIndex) ].Load<T>(index * sizeof(T));
 	}
 };
 
@@ -264,7 +299,7 @@ void AccelerationStructureHandle::TraceRayKHR(
 	RayDesc Ray, 
 	inout payload_t Payload) {
 	uint handleIndex = handle.GetIndex();
-	TraceRay(g_AccelerationStructures [ handleIndex ], 
+	TraceRay(g_AccelerationStructures [ NonUniformResourceIndex(handleIndex) ], 
 		  RayFlags,
 		  InstanceInclusionMask, 
 		  RayContributionToHitGroupIndex,

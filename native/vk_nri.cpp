@@ -448,6 +448,20 @@ ResourceHandle VulkanDescriptorAllocator::addUniformBufferDescriptor(const Vulka
 	return ResourceHandle(ResourceType::RESOURCE_TYPE_BUFFER, false, descriptorIndex);
 }
 
+ResourceHandle VulkanDescriptorAllocator::addStorageBufferDescriptor(const VulkanBuffer &buffer) {
+	uint32_t descriptorIndex = currentBufferDescriptorIndex++;
+
+	dbLog(dbg::LOG_INFO, "Adding storage buffer descriptor at index ", descriptorIndex);
+	vk::DescriptorBufferInfo bufferInfo(buffer.getBuffer(), 0, VK_WHOLE_SIZE);
+
+	vk::WriteDescriptorSet descriptorWrite(bigDescriptorSet, 3, descriptorIndex, 1, vk::DescriptorType::eStorageBuffer,
+										   nullptr, &bufferInfo, nullptr);
+
+	(*nri.getDevice()).updateDescriptorSets(1, &descriptorWrite, 0, nullptr);
+
+	return ResourceHandle(ResourceType::RESOURCE_TYPE_BUFFER, true, descriptorIndex);
+}
+
 ResourceHandle VulkanDescriptorAllocator::addSamplerImageDescriptor(const VulkanTexture2D &image) {
 	uint32_t descriptorIndex = currentImageDescriptorIndex++;
 
@@ -491,7 +505,7 @@ vk::MemoryPropertyFlags typeRequest2vkMemoryProperty[] = {
 	vk::MemoryPropertyFlagBits::eDeviceLocal};
 
 VulkanAllocation::VulkanAllocation(VulkanNRI &nri, MemoryRequirements memoryRequirements)
-	: memory(nullptr), device(nri.getDevice()) {
+	: memory(nullptr), device(nri.getDevice()), size(memoryRequirements.size) {
 	assert(memoryRequirements.typeRequest >= 0);
 	assert(memoryRequirements.typeRequest < MemoryTypeRequest::_MEMORY_TYPE_NUM);
 	vk::MemoryPropertyFlags properties = typeRequest2vkMemoryProperty[(uint32_t)memoryRequirements.typeRequest];
@@ -511,6 +525,10 @@ VulkanAllocation::VulkanAllocation(VulkanNRI &nri, MemoryRequirements memoryRequ
 	vk::MemoryAllocateInfo		allocInfo(memoryRequirements.size, memoryTypeIndex, &allocFlagsInfo);
 
 	memory = vk::raii::DeviceMemory(nri.getDevice(), allocInfo);
+}
+
+ResourceHandle VulkanBuffer::createHandle() const {
+	return nri->getDescriptorAllocator().addStorageBufferDescriptor(*this);
 }
 
 VulkanBuffer::VulkanBuffer(VulkanNRI &nri, std::size_t size, BufferUsage usage)
@@ -686,6 +704,11 @@ MemoryRequirements &MemoryRequirements::setTypeRequest(MemoryTypeRequest tr) {
 	return *this;
 }
 
+MemoryRequirements &MemoryRequirements::setAlignment(std::size_t a) {
+	alignment = a;
+	return *this;
+}
+
 std::unique_ptr<Image2D> VulkanNRI::createImage2D(uint32_t width, uint32_t height, Format format, ImageUsage usage) {
 	return std::make_unique<VulkanImage2D>(*this, width, height, format, usage);
 }
@@ -729,6 +752,27 @@ void VulkanImage2D::prepareForPresent(CommandBuffer &commandBuffer) {
 					 vk::AccessFlagBits::eMemoryRead,
 					 vk::PipelineStageFlagBits::eTransfer | vk::PipelineStageFlagBits::eColorAttachmentOutput,
 					 vk::PipelineStageFlagBits::eBottomOfPipe);
+}
+void VulkanImage2D::prepareForStorage(CommandBuffer &commandBuffer) {
+	auto &vkBuf = static_cast<VulkanCommandBuffer &>(commandBuffer);
+
+	transitionLayout(vkBuf, vk::ImageLayout::eGeneral,
+					 vk::AccessFlagBits::eTransferWrite | vk::AccessFlagBits::eColorAttachmentWrite,
+					 vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eShaderWrite,
+					 vk::PipelineStageFlagBits::eTransfer | vk::PipelineStageFlagBits::eColorAttachmentOutput,
+					 vk::PipelineStageFlagBits::eComputeShader | vk::PipelineStageFlagBits::eRayTracingShaderKHR |
+						 vk::PipelineStageFlagBits::eFragmentShader | vk::PipelineStageFlagBits::eVertexShader);
+}
+
+void VulkanImage2D::prepareForTexture(CommandBuffer &commandBuffer) {
+	auto &vkBuf = static_cast<VulkanCommandBuffer &>(commandBuffer);
+
+	transitionLayout(vkBuf, vk::ImageLayout::eShaderReadOnlyOptimal,
+					 vk::AccessFlagBits::eTransferWrite | vk::AccessFlagBits::eColorAttachmentWrite,
+					 vk::AccessFlagBits::eShaderRead,
+					 vk::PipelineStageFlagBits::eTransfer | vk::PipelineStageFlagBits::eColorAttachmentOutput,
+					 vk::PipelineStageFlagBits::eFragmentShader | vk::PipelineStageFlagBits::eVertexShader |
+						 vk::PipelineStageFlagBits::eComputeShader | vk::PipelineStageFlagBits::eRayTracingShaderKHR);
 }
 
 void VulkanImage2D::copyFrom(CommandBuffer &commandBuffer, Buffer &srcBuffer, std::size_t srcOffset,
@@ -1054,6 +1098,8 @@ std::pair<std::vector<vk::raii::ShaderModule>, std::vector<vk::PipelineShaderSta
 		arguments.push_back(L"-spirv");
 		arguments.push_back(L"-D");
 		arguments.push_back(L"VULKAN");
+		arguments.push_back(L"-D");
+		arguments.push_back(L"SHADER");
 		arguments.push_back(L"-I");
 		arguments.push_back(PROJECT_ROOT_DIR L"/shaders/");
 		arguments.push_back(L"-fvk-use-dx-layout");
@@ -1228,7 +1274,7 @@ std::unique_ptr<RayTracingProgram> VulkanProgramBuilder::buildRayTracingProgram(
 	auto miss		= missit != shaderStages.end() ? missit - shaderStages.begin() : VK_SHADER_UNUSED_KHR;
 
 	if (raygen == VK_SHADER_UNUSED_KHR) dbLog(dbg::LOG_ERROR, "No ray generation shader found in ray tracing program!");
-	if (miss != VK_SHADER_UNUSED_KHR) dbLog(dbg::LOG_ERROR, "Miss shaders not currently supported in VulkanNRI");
+	// if (miss != VK_SHADER_UNUSED_KHR) dbLog(dbg::LOG_ERROR, "Miss shaders not currently supported in VulkanNRI");
 
 	std::vector<vk::RayTracingShaderGroupCreateInfoKHR> shaderGroups;
 	if (raygen != VK_SHADER_UNUSED_KHR)
@@ -1267,7 +1313,9 @@ std::unique_ptr<RayTracingProgram> VulkanProgramBuilder::buildRayTracingProgram(
 	// Calculate aligned sizes
 	uint32_t handleSize		   = rtProps.shaderGroupHandleSize;
 	uint32_t handleAlignment   = rtProps.shaderGroupHandleAlignment;
+	uint32_t baseAlignment	   = rtProps.shaderGroupBaseAlignment;
 	uint32_t alignedHandleSize = (handleSize + handleAlignment - 1) & ~(handleAlignment - 1);
+	alignedHandleSize		   = (alignedHandleSize + baseAlignment - 1) & ~(baseAlignment - 1);
 
 	uint32_t numGroups = static_cast<uint32_t>(shaderGroups.size());
 	uint32_t sbtSize   = numGroups * alignedHandleSize;
@@ -1286,8 +1334,9 @@ std::unique_ptr<RayTracingProgram> VulkanProgramBuilder::buildRayTracingProgram(
 		VulkanBuffer(nri, sbtSize,
 					 BufferUsage::BUFFER_USAGE_SHADER_BINDING_TABLE | BufferUsage::BUFFER_USAGE_TRANSFER_SRC |
 						 BufferUsage::BUFFER_USAGE_TRANSFER_DST);
-	VulkanAllocation sbtAllocation =
-		VulkanAllocation(nri, sbtBuffer.getMemoryRequirements().setTypeRequest(MemoryTypeRequest::MEMORY_TYPE_DEVICE));
+	VulkanAllocation sbtAllocation = VulkanAllocation(nri, sbtBuffer.getMemoryRequirements()
+															   .setAlignment(baseAlignment)
+															   .setTypeRequest(MemoryTypeRequest::MEMORY_TYPE_DEVICE));
 	sbtBuffer.bindMemory(sbtAllocation, 0);
 
 	VulkanBuffer	 uploadBuffer	  = VulkanBuffer(nri, sbtSize, BufferUsage::BUFFER_USAGE_TRANSFER_SRC);
@@ -1340,7 +1389,7 @@ void VulkanRayTracingProgram::traceRays(CommandBuffer &commandBuffer, uint32_t w
 
 void VulkanProgram::bind(CommandBuffer &commandBuffer) {
 	auto &vkCmdBuf = static_cast<VulkanCommandBuffer &>(commandBuffer);
-	vkCmdBuf.commandBuffer.bindPipeline(bindPoint, *pipeline);	   // TODO: BAD
+	vkCmdBuf.commandBuffer.bindPipeline(bindPoint, *pipeline);
 
 	auto &descriptorSet = static_cast<VulkanNRI &>(nri).getDescriptorAllocator().getDescriptorSet();
 	vkCmdBuf.commandBuffer.bindDescriptorSets(bindPoint, *pipelineLayout, 0, *descriptorSet, {});
@@ -1619,7 +1668,7 @@ vk::DeviceAddress VulkanBLAS::getAddress() const {
 }
 
 VulkanTLAS::VulkanTLAS(VulkanNRI &nri, const std::span<const BLAS *> &blases,
-					   std::optional<std::span<glm::mat4x3>> transforms)
+					   std::optional<std::span<glm::mat3x4>> transforms)
 	: nri(&nri), as(nullptr), asBuffer(nullptr), asMemory(nullptr) {
 	tempBuildInfo = std::make_unique<TemporaryBuildInfo>();
 
@@ -1648,7 +1697,7 @@ VulkanTLAS::VulkanTLAS(VulkanNRI &nri, const std::span<const BLAS *> &blases,
 				glm::mat4x3 identity = glm::mat4x3(1.0f);
 				std::memcpy(&instance.transform.matrix, &identity, sizeof(glm::mat4x3));
 			}
-			instance.instanceCustomIndex					= 0;
+			instance.instanceCustomIndex					= i;
 			instance.mask									= 0xFF;
 			instance.instanceShaderBindingTableRecordOffset = 0;
 			instance.flags = (VkGeometryInstanceFlagsKHR)vk::GeometryInstanceFlagBitsKHR::eTriangleFacingCullDisable;
@@ -1752,7 +1801,7 @@ std::unique_ptr<BLAS> VulkanNRI::createBLAS(Buffer &vertexBuffer, Format vertexF
 }
 
 std::unique_ptr<TLAS> VulkanNRI::createTLAS(const std::span<const BLAS *>		 &blases,
-											std::optional<std::span<glm::mat4x3>> transforms) {
+											std::optional<std::span<glm::mat3x4>> transforms) {
 	return std::make_unique<VulkanTLAS>(*this, blases, transforms);
 }
 

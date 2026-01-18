@@ -219,6 +219,7 @@ struct MemoryRequirements {
 		: size(s), alignment(a), typeRequest(tr) {}
 
 	MemoryRequirements &setTypeRequest(MemoryTypeRequest tr);
+	MemoryRequirements &setAlignment(std::size_t a);
 };
 
 struct ShaderCreateInfo {
@@ -279,7 +280,7 @@ class NRI {
 											 uint32_t vertexCount, std::size_t vertexStride, Buffer &indexBuffer,
 											 IndexType indexType, std::size_t indexOffset)					  = 0;
 	virtual std::unique_ptr<TLAS> createTLAS(const std::span<const BLAS *>		  &blases,
-											 std::optional<std::span<glm::mat4x3>> transforms = std::nullopt) = 0;
+											 std::optional<std::span<glm::mat3x4>> transforms = std::nullopt) = 0;
 
 	virtual bool shouldFlipY() const		= 0;
 	virtual bool supportsRayTracing() const = 0;
@@ -332,9 +333,13 @@ class ResourceHandle final {
 class Allocation {
    public:
 	virtual ~Allocation() {}
+	virtual std::size_t getSize() const = 0;
 };
 
 class Buffer {
+protected:
+	ResourceHandle		   handle = ResourceHandle::INVALID_HANDLE;
+	virtual ResourceHandle createHandle() const = 0;
    public:
 	virtual ~Buffer() {}
 
@@ -351,6 +356,8 @@ class Buffer {
 	virtual void bindAsVertexBuffer(CommandBuffer &commandBuffer, uint32_t binding, std::size_t offset,
 									std::size_t stride)													  = 0;
 	virtual void bindAsIndexBuffer(CommandBuffer &commandBuffer, std::size_t offset, IndexType indexType) = 0;
+
+	ResourceHandle getHandle();
 };
 
 class ImageView {
@@ -374,6 +381,8 @@ class Image2D {
 
 	virtual void clear(CommandBuffer &commandBuffer, glm::vec4 color) = 0;
 	virtual void prepareForPresent(CommandBuffer &commandBuffer)	  = 0;
+	virtual void prepareForStorage(CommandBuffer &commandBuffer)	  = 0;
+	virtual void prepareForTexture(CommandBuffer &commandBuffer)	  = 0;
 
 	virtual void copyFrom(CommandBuffer &commandBuffer, Buffer &srcBuffer, std::size_t srcOffset,
 						  uint32_t srcRowPitch) = 0;
