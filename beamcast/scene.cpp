@@ -41,7 +41,10 @@ MeshObject::MeshObject(uint32_t meshIndex, const rapidjson::Value &obj) : meshIn
 }
 
 GPUMeshObject MeshObject::getGPU() const {
-	GPUMeshObject gpuObj = {.materialIndex = materialIndex};
+	GPUMeshObject gpuObj = {
+		.materialIndex = materialIndex,
+		.meshIndex	   = meshIndex,
+	};
 	dbLog(dbg::LOG_DEBUG, "MeshObject GPU material index: ", gpuObj.materialIndex);
 	return gpuObj;
 }
@@ -217,10 +220,14 @@ void Scene::updateGPUBuffers(nri::CommandQueue &queue) {
 		nri->createBuffer(sizeof(GPUMeshObject) * meshObjects.size(),
 						  nri::BufferUsage::BUFFER_USAGE_STORAGE | nri::BufferUsage::BUFFER_USAGE_TRANSFER_DST);
 
-	auto [offsets, memreq] = beamcast::getBufferOffsets({materialsBuffer.get(), meshObjectsBuffer.get()});
+	meshesBuffer = nri->createBuffer(sizeof(GPUMesh) * meshes.size(), nri::BufferUsage::BUFFER_USAGE_STORAGE |
+																		  nri::BufferUsage::BUFFER_USAGE_TRANSFER_DST);
+
+	auto [offsets, memreq] =
+		beamcast::getBufferOffsets({materialsBuffer.get(), meshObjectsBuffer.get(), meshesBuffer.get()});
 	auto mem =
 		beamcast::allocateBindMemory(*nri, offsets, memreq.setTypeRequest(nri::MemoryTypeRequest::MEMORY_TYPE_DEVICE),
-									 {materialsBuffer.get(), meshObjectsBuffer.get()});
+									 {materialsBuffer.get(), meshObjectsBuffer.get(), meshesBuffer.get()});
 	memoryAllocations.push_back(std::move(mem));
 
 	auto stagingBuffer = nri->createBuffer(memreq.size, nri::BufferUsage::BUFFER_USAGE_TRANSFER_SRC);
@@ -234,6 +241,9 @@ void Scene::updateGPUBuffers(nri::CommandQueue &queue) {
 		GPUMeshObject *gpuMeshObjects = (GPUMeshObject *)((uint8_t *)data + offsets[1]);
 		for (size_t i = 0; i < meshObjects.size(); ++i)
 			gpuMeshObjects[i] = meshObjects[i].getGPU();
+		GPUMesh *gpuMeshes = (GPUMesh *)((uint8_t *)data + offsets[2]);
+		for (size_t i = 0; i < meshes.size(); ++i)
+			gpuMeshes[i] = meshes[i].getGPU();
 
 		stagingBuffer->unmap();
 	}
@@ -242,6 +252,7 @@ void Scene::updateGPUBuffers(nri::CommandQueue &queue) {
 	cmdBuf->begin();
 	materialsBuffer->copyFrom(*cmdBuf, *stagingBuffer, offsets[0], 0, materialsBuffer->getSize());
 	meshObjectsBuffer->copyFrom(*cmdBuf, *stagingBuffer, offsets[1], 0, meshObjectsBuffer->getSize());
+	meshesBuffer->copyFrom(*cmdBuf, *stagingBuffer, offsets[2], 0, meshesBuffer->getSize());
 	cmdBuf->end();
 	auto key = queue.submit(*cmdBuf);
 	queue.wait(key);
@@ -255,4 +266,5 @@ nri::PushConstantRange Scene::getPushConstantRange() {
 nri::TLAS	&Scene::getTLAS() { return *tlas; }
 nri::Buffer &Scene::getMaterialsBuffer() { return *materialsBuffer; }
 nri::Buffer &Scene::getMeshObjectsBuffer() { return *meshObjectsBuffer; }
+nri::Buffer &Scene::getMeshesBuffer() { return *meshesBuffer; }
 }	  // namespace beamcast

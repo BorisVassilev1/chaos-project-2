@@ -9,6 +9,7 @@ struct PushConstants
 	AccelerationStructureHandle sceneBVH;
 	ArrayBufferHandle materials;
 	ArrayBufferHandle meshObjects;
+	ArrayBufferHandle meshes;
 };
 
 VK_PUSH_CONST_ATTR
@@ -63,7 +64,7 @@ void MissMain(inout RayPayload payload)
 }
 
 [shader("closesthit")]
-void ClosestHitMain(inout RayPayload payload, BuiltInTriangleIntersectionAttributes attr)
+void ClosestHitMain(inout RayPayload payload, in BuiltInTriangleIntersectionAttributes attr)
 {
 	float3 colors[3] = {
 		float3(1.0, 0.0, 0.0),
@@ -72,17 +73,25 @@ void ClosestHitMain(inout RayPayload payload, BuiltInTriangleIntersectionAttribu
 	};
 	float3 position = WorldRayOrigin() + WorldRayDirection() * RayTCurrent();
 	//payload.color = position * .1f;
-	uint materialIndex = pushConstants.meshObjects.Load<GPUMeshObject>(InstanceID()).materialIndex;
-	GPUMaterial material = pushConstants.materials.Load<GPUMaterial>(materialIndex);
+	GPUMeshObject meshObject = pushConstants.meshObjects.Load<GPUMeshObject>(InstanceID());
+	GPUMaterial material = pushConstants.materials.Load<GPUMaterial>(meshObject.materialIndex);
+	GPUMesh mesh = pushConstants.meshes.Load<GPUMesh>(meshObject.meshIndex);
+	
+	uint3 indices = mesh.indexBuffer.Load<uint3>(PrimitiveIndex());
+	GPUVertex v0 = mesh.vertexBuffer.Load<GPUVertex>(indices.x);
+	GPUVertex v1 = mesh.vertexBuffer.Load<GPUVertex>(indices.y);
+	GPUVertex v2 = mesh.vertexBuffer.Load<GPUVertex>(indices.z);
+
+	float2 texCoord = 
+		v1.texCoord * attr.barycentrics.x + 
+		v2.texCoord * attr.barycentrics.y + 
+		v0.texCoord * (1.0 - attr.barycentrics.x - attr.barycentrics.y);
+
 	if(material.albedoTexture.IsValid()) {
-		float2 texCoord = attr.barycentrics.xy;
 		float4 texColor = material.albedoTexture.Sample2D<float4>(texCoord, 0);
 		payload.color = texColor.rgb;
 	} else {
 		payload.color = material.albedo;
 	}
-
-	//payload.color = colors[materialIndex % 3];
-	//payload.color = colors[InstanceID() % 3];
 
 }

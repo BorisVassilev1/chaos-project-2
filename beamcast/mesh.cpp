@@ -40,10 +40,13 @@ void Mesh::init(nri::NRI &nri, nri::CommandQueue &q, std::span<float> vertices, 
 	vertexCount = vertices.size() / 3;
 	indexCount	= indices.size();
 
-	vertexAttributes = nri.createBuffer(vertexCount * (3 + 3 + 3 + 2) * sizeof(float),
-										nri::BUFFER_USAGE_VERTEX | nri::BUFFER_USAGE_TRANSFER_DST);
-	indexBuffer =
-		nri.createBuffer(indices.size() * sizeof(uint32_t), nri::BUFFER_USAGE_INDEX | nri::BUFFER_USAGE_TRANSFER_DST);
+	nri::BufferUsage bufferUsage = nri::BUFFER_USAGE_TRANSFER_DST;
+	if (nri.supportsRayTracing())	  // ray tracing pipeline will have to read vertex/index buffers
+		bufferUsage = bufferUsage | nri::BUFFER_USAGE_STORAGE;
+
+	vertexAttributes =
+		nri.createBuffer(vertexCount * (3 + 3 + 3 + 2) * sizeof(float), nri::BUFFER_USAGE_VERTEX | bufferUsage);
+	indexBuffer = nri.createBuffer(indices.size() * sizeof(uint32_t), nri::BUFFER_USAGE_INDEX | bufferUsage);
 
 	auto [offsets, memReq] = getBufferOffsets({vertexAttributes.get(), indexBuffer.get()});
 	memory				   = allocateBindMemory(nri, {vertexAttributes.get(), indexBuffer.get()},
@@ -199,6 +202,16 @@ std::vector<nri::VertexBinding> Mesh::getVertexBindings() const {
 const nri::BLAS &Mesh::getBLAS() const {
 	if (!bottomLevelAS) { dbLog(dbg::LOG_ERROR, "Bottom level AS not created for this mesh!"); }
 	return *bottomLevelAS;
+}
+GPUMesh Mesh::getGPU() const {
+	GPUMesh gpuMesh = {
+		.vertexBuffer  = vertexAttributes->getHandle(),
+		.indexBuffer   = indexBuffer->getHandle(),
+		.bottomLevelAS = nri::ResourceHandle::INVALID_HANDLE,	  // for now always invalid
+		.vertexCount   = vertexCount,
+		.indexCount	   = indexCount,
+	};
+	return gpuMesh;
 }
 
 TriangleMesh::TriangleMesh(nri::NRI &nri, nri::CommandQueue &q) : Mesh() {

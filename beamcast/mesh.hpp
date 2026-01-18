@@ -6,6 +6,7 @@
 #include <rapidjson/document.h>
 
 #include "../native/nri.hpp"
+#include "../shaders/common_structs.hlsl"
 namespace beamcast {
 
 class Mesh {
@@ -33,6 +34,7 @@ class Mesh {
 
 	std::vector<nri::VertexBinding> getVertexBindings() const;
 	const nri::BLAS				   &getBLAS() const;
+	GPUMesh							getGPU() const;
 };
 
 class TriangleMesh : public Mesh {

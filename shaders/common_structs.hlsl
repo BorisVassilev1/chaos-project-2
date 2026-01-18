@@ -13,6 +13,9 @@
 #define int3 glm::ivec3
 #define int4 glm::ivec4
 #define TextureHandle nri::ResourceHandle
+#define RWTextureHandle nri::ResourceHandle
+#define AccelerationStructureHandle nri::ResourceHandle
+#define ArrayBufferHandle nri::ResourceHandle
 #else // SHADER
 #include <resource_heap.hlsl>
 #define nri  
@@ -25,5 +28,21 @@ struct GPUMaterial {
 
 struct GPUMeshObject {
 	uint materialIndex;
+	uint meshIndex;
+};
+
+struct GPUMesh {
+	ArrayBufferHandle vertexBuffer;
+	ArrayBufferHandle indexBuffer;
+	ArrayBufferHandle bottomLevelAS;
+	uint32_t			vertexCount;
+	uint32_t			indexCount;
+};
+
+struct GPUVertex {
+	float3 position;
+	float3 color;
+	float3 normal;
+	float2 texCoord;
 };
 

@@ -32,8 +32,9 @@ class Scene {
 
 	std::vector<std::unique_ptr<nri::Allocation>> memoryAllocations;
 
-	std::unique_ptr<nri::Buffer>				 materialsBuffer; // array of GPUMaterial
-	std::unique_ptr<nri::Buffer>				 meshObjectsBuffer; // array of GPUMeshObject
+	std::unique_ptr<nri::Buffer> materialsBuffer;		// array of GPUMaterial
+	std::unique_ptr<nri::Buffer> meshObjectsBuffer;		// array of GPUMeshObject
+	std::unique_ptr<nri::Buffer> meshesBuffer;			// array of GPUMesh
 
 	std::unique_ptr<nri::TLAS> tlas;
 
@@ -56,7 +57,8 @@ class Scene {
 
 	static nri::PushConstantRange getPushConstantRange();
 	nri::TLAS					 &getTLAS();
-	nri::Buffer &getMaterialsBuffer();
-	nri::Buffer &getMeshObjectsBuffer();
+	nri::Buffer					 &getMaterialsBuffer();
+	nri::Buffer					 &getMeshObjectsBuffer();
+	nri::Buffer					 &getMeshesBuffer();
 };
 }	  // namespace beamcast

@@ -12,6 +12,7 @@ struct RayTracingPushConstants {
 	nri::ResourceHandle sceneHandle;
 	nri::ResourceHandle materialsHandle;
 	nri::ResourceHandle meshObjectsHandle;
+	nri::ResourceHandle meshesHandle;
 };
 
 void BeamcastRenderer::initialize(nri::QWindow &window) {
@@ -145,6 +146,7 @@ void BeamcastRenderer::render(const nri::ImageAndViewRef &currentImage, nri::Com
 			pushConstants.sceneHandle		= scene->getTLAS().getHandle();
 			pushConstants.materialsHandle	= scene->getMaterialsBuffer().getHandle();
 			pushConstants.meshObjectsHandle = scene->getMeshObjectsBuffer().getHandle();
+			pushConstants.meshesHandle		= scene->getMeshesBuffer().getHandle();
 
 			rayTracingShader->setPushConstants(cmdBuf, &pushConstants, sizeof(pushConstants), 0);
 			rayTracingShader->traceRays(cmdBuf, rayTracingOutputImage->getWidth(), rayTracingOutputImage->getHeight(),
