@@ -1,5 +1,5 @@
 #pragma once
-#define GLM_SWIZZLE
+#define GLM_FORCE_SWIZZLE
 #include <glm/glm.hpp>
 #include <iostream>
 

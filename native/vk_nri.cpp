@@ -274,7 +274,7 @@ static void printDeviceQueueFamiliesInfo(const vk::raii::PhysicalDevice &device)
 }
 
 void VulkanNRI::createInstance() {
-	vk::ApplicationInfo appInfo("VulkanApp", 1, "NoEngine", 1, vk::ApiVersion13);
+	vk::ApplicationInfo appInfo("VulkanApp", 1, "NoEngine", 1, vk::ApiVersion12);
 
 	vk::InstanceCreateInfo createInfo({}, &appInfo);
 
